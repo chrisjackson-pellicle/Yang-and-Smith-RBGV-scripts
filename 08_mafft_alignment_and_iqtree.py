@@ -1,0 +1,479 @@
+#!/usr/bin/env python
+
+# Author: Chris Jackson
+
+"""
+Aligns the fasta file using mafft.
+
+########################################################################################################################
+Additional information:
+
+Text Here
+########################################################################################################################
+
+"""
+
+import logging
+import sys
+import argparse
+import os
+import socket
+import gzip
+import re
+import fnmatch
+import glob
+import subprocess
+import shutil
+from collections import defaultdict
+from Bio import SeqIO, AlignIO
+from Bio.Align.Applications import MafftCommandline, ClustalOmegaCommandline
+from concurrent.futures.process import ProcessPoolExecutor
+from multiprocessing import Manager
+from concurrent.futures import wait
+
+
+if sys.version_info[0] < 3:
+    raise Exception("Must be using Python 3")
+
+
+########################################################################################################################
+########################################################################################################################
+# Get current working directory and host name
+
+cwd = os.getcwd()
+host = socket.gethostname()
+
+# Configure logger:
+
+# Create a custom logger
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
+# Create handlers
+c_handler = logging.StreamHandler(sys.stdout)
+existing_log_file_numbers = [int(file.split('_')[-1]) for file in os.listdir('.') if fnmatch.fnmatch(file, '*.mylog*')]
+if not existing_log_file_numbers:
+    new_log_number = 1
+else:
+    new_log_number = sorted(existing_log_file_numbers)[-1] + 1
+f_handler = logging.FileHandler(f'logging_file.mylog_{new_log_number}', mode='w')
+
+# Create formatters and add it to handlers
+c_format = logging.Formatter('%(message)s')
+f_format = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+c_handler.setFormatter(c_format)
+f_handler.setFormatter(f_format)
+
+# Add handlers to the logger
+logger.addHandler(c_handler)
+logger.addHandler(f_handler)
+
+########################################################################################################################
+########################################################################################################################
+# Define functions:
+
+
+def createfolder(directory):
+    """
+    Attempts to create a directory named after the name provided, and provides an error message on failure
+    """
+    try:
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+    except OSError:
+        logger.info(f'Error: Creating directory: {directory}')
+
+
+def file_exists_and_not_empty(file_name):
+    """
+    Check if file exists and is not empty by confirming that its size is not 0 bytes
+    """
+    # Check if file exist and is not empty
+    return os.path.isfile(file_name) and not os.path.getsize(file_name) == 0
+
+
+def concatenate_small(outfile, *args):
+    """
+    e.g. concatenate_small('test.fastq', 'IDX01_S1_L001_R1_001.fastq', 'IDX01_S1_L001_R2_001.fastq')
+    """
+    with open(outfile, 'a+') as outfile:
+        for filename in args:
+            with open(filename, 'r') as infile:
+                outfile.write(infile.read())
+
+
+def gunzip(file):
+    """
+    Unzips a .gz file unless unzipped file already exists
+    """
+    expected_unzipped_file = re.sub('.gz', '', file)
+    if not file_exists_and_not_empty(expected_unzipped_file):
+        with open(expected_unzipped_file, 'w') as outfile:
+            with gzip.open(file, 'rt') as infile:
+                outfile.write(infile.read())
+        os.remove(file)
+
+
+def multiprocessing(input_folder, output_folder, pool_threads=1):
+    """
+    General function for multiprocessing. Adds a callback function to each future.
+    """
+
+    createfolder(output_folder)
+    to_process_list = [file for file in sorted(glob.glob(f'{input_folder}'))]
+
+    with ProcessPoolExecutor(max_workers=pool_threads) as pool:
+        manager = Manager()
+        lock = manager.Lock()
+        counter = manager.Value('i', 0)
+        future_results = [pool.submit(function_x, function_arg_1, counter, lock,
+                                      num_files_to_process=len(to_process_list))
+                          for function_arg_1 in to_process_list]
+        for future in future_results:
+            future.add_done_callback(done_callback)
+        wait(future_results, return_when="ALL_COMPLETED")
+
+
+def done_callback(future_returned):
+    """
+    Callback function for ProcessPoolExecutor futures; gets called when a future is cancelled or 'done'.
+    """
+    if future_returned.cancelled():
+        logger.info(f'{future_returned}: cancelled')
+    elif future_returned.done():
+        error = future_returned.exception()
+        if error:
+            logger.info(f'{future_returned}: error returned: {error}')
+        else:
+            result = future_returned.result()
+    return result
+
+
+def get_outgroup_seqs(target_fasta_file, outgroup_list):
+    """
+    Searches a list of outgroup taxon names against a fasta file of possible outgroup sequences
+    (e.g. the 353 angiosperm target file), and checks if there's an outgroup taxon for each gene. Prints a warning if
+    not.
+    """
+    unique_gene_names = set()
+    outgroup_lists = defaultdict(list)
+    with open(target_fasta_file, 'r') as target_file:
+        seqs = SeqIO.parse(target_file, 'fasta')
+        for seq in seqs:
+            taxon_name = re.split('-', seq.name)[0]
+            gene_id = re.split('-', seq.name)[-1]
+            unique_gene_names.add(gene_id)  # e.g. '4471'
+            if taxon_name in outgroup_list:
+                outgroup_lists[gene_id].append(seq)
+    if len(outgroup_lists) == len(unique_gene_names):
+        logger.info(f'Found an outgroup for each of {len(unique_gene_names)} genes in the targetfile provided...')
+    else:
+        # sys.exit(f'Only found an outgroup for {len(outgroup_lists)} of {len(unique_gene_names)} genes in the '
+        #          f'targetfile provided! Perhaps add more species name for outgroup selection?')
+        # logger.info(f'Only found an outgroup for {len(outgroup_lists)} of {len(unique_gene_names)} genes in the '
+        #             f'targetfile provided! Perhaps add more species name for outgroup selection?')
+        pass
+    return outgroup_lists
+
+
+def append_outgroup_seqs(fasta_directory, outgroups_dict, outgroups_list):
+    """
+    Inserts an outgroup sequence recovered from the outgroups file into the fasta gene list recovered from QC'd trees.
+    """
+    for fasta_file in glob.glob(f'{fasta_directory}/*.fa'):
+        basename = os.path.basename(fasta_file)
+        # gene_id = basename.split('.')[0]
+        gene_id = re.split('[.]|_', basename)[0]
+        seqs_dict = SeqIO.to_dict(SeqIO.parse(fasta_file, 'fasta'))
+        if seqs_dict:  # Don't process HybPiper paralog fasta files without sequences
+            for seq in outgroups_dict[gene_id]:
+                seq_taxon_name = seq.name.split('-')[0]
+                try:
+                    seqs_dict[seq_taxon_name].name = f'{seq.name.split("-")[0]}.outgroup'
+                    seqs_dict[seq_taxon_name].id = f'{seq.id.split("-")[0]}.outgroup'
+                    seqs_dict[seq_taxon_name].description = ''
+                except KeyError:  # i.e. the outgroup sequence isn't already in the fasta file
+                    print(f'Sequence {seq_taxon_name} is not already in the fasta file')
+                    seq.name = f'{seq.name.split("-")[0]}.outgroup'
+                    seq.id = f'{seq.id.split("-")[0]}.outgroup'
+                    seq.description = ''
+                    seqs_dict[seq.name] = seq
+            with open(f'{fasta_directory}/{gene_id}.outgroup_added.fasta', 'w') as outgroup_added:
+                SeqIO.write(seqs_dict.values(), outgroup_added, 'fasta')
+
+
+def write_outgroup_file(outgroups_inserted_folder):
+    """
+    Write a tab-separated outgroup file for the Y&S pruning scripts, of the form:
+
+    IN  Euchiton_limosus
+    IN  Euchiton_sphaericus
+    IN  Pterochaeta_paniculata
+    OUT sunf
+    etc...
+
+    """
+    unique_outgroup_names = set()
+    unique_ingroup_names = set()
+    for fasta in glob.glob(f'{outgroups_inserted_folder}/*.outgroup_added.fasta'):
+        seqs = SeqIO.parse(fasta, 'fasta')
+        for seq in seqs:
+            if re.search('outgroup', seq.name):
+                name = seq.name.split('.')[0]
+                unique_outgroup_names.add(name)
+            else:
+                name = seq.name.split('.')[0]
+                unique_ingroup_names.add(name)
+    with open('in_and_outgroups_list.txt', 'w') as group_list:
+        for taxon in unique_outgroup_names:
+            group_list.write(f'OUT\t{taxon}\n')
+        for taxon in unique_ingroup_names:
+            group_list.write(f'IN\t{taxon}\n')
+
+
+def mafft_align(fasta_file, algorithm, output_folder, counter, lock, num_files_to_process, threads=2,
+                no_supercontigs=False):
+    """
+    Uses mafft to align a fasta file of sequences, using the algorithm and number of threads provided. Returns filename
+    of the alignment produced.
+    """
+    # print(fasta_file)
+    createfolder(output_folder)
+    fasta_file_basename = os.path.basename(fasta_file)
+    expected_alignment_file = f'{output_folder}/{re.sub(".fasta", ".aln.fasta", fasta_file_basename)}'
+    expected_alignment_file_trimmed = re.sub('.aln.fasta', '.aln.trimmed.fasta', expected_alignment_file)
+    # print(expected_alignment_file_trimmed)
+
+    try:
+        if not no_supercontigs:
+            assert file_exists_and_not_empty(expected_alignment_file_trimmed)
+            logger.debug(f'Trimmed alignment exists for {fasta_file_basename}, skipping...')
+            with lock:
+                counter.value += 1
+            return os.path.basename(expected_alignment_file_trimmed)
+        else:
+            assert file_exists_and_not_empty(expected_alignment_file)
+            logger.debug(f'Alignment exists for {fasta_file_basename}, skipping...')
+            with lock:
+                counter.value += 1
+            return os.path.basename(expected_alignment_file)
+    except AssertionError:
+        mafft_cline = (MafftCommandline(algorithm, adjustdirection='true', thread=threads, input=fasta_file))
+        stdout, stderr = mafft_cline()
+        with open(expected_alignment_file, 'w') as alignment_file:
+            alignment_file.write(stdout)
+        # print(f'expected_alignment_file is: {expected_alignment_file}\n')
+
+        if not no_supercontigs:
+            trimmed_alignment = re.sub('.aln.fasta', '.aln.trimmed.fasta', expected_alignment_file)
+            # run_trim = subprocess.run(['/Users/chrisjackson/miniconda3/bin/trimal', '-in', expected_alignment_file, '-out', trimmed_alignment,
+            #                            '-gapthreshold', '0.12', '-terminalonly', '-gw', '1'], check=True)
+            run_trim = subprocess.run(
+                ['trimal', '-in', expected_alignment_file, '-out', trimmed_alignment,
+                 '-gapthreshold', '0.12', '-terminalonly', '-gw', '1'], check=True)
+            # print(f'\nrun_trim is: {run_trim}\n')
+        with lock:
+            counter.value += 1
+        logger.debug(f'Aligned file {fasta_file_basename}')
+        return os.path.basename(expected_alignment_file)
+    finally:
+        print(f'\rFinished generating alignment for file {fasta_file_basename}, '
+              f'{counter.value}/{num_files_to_process}', end='')
+
+
+def mafft_align_multiprocessing(fasta_to_align_folder, alignments_output_folder, algorithm='linsi', pool_threads=1,
+                                mafft_threads=2, no_supercontigs=False):
+    """
+    Generate alignments via function <align_targets> using multiprocessing.
+    """
+    createfolder(alignments_output_folder)
+    logger.info(f'Generating alignments for fasta files in folder {fasta_to_align_folder}...\n')
+    target_genes = [file for file in sorted(glob.glob(f'{fasta_to_align_folder}/*.outgroup_added.fasta'))]
+    # print(target_genes)
+
+    with ProcessPoolExecutor(max_workers=pool_threads) as pool:
+        manager = Manager()
+        lock = manager.Lock()
+        counter = manager.Value('i', 0)
+        future_results = [pool.submit(mafft_align, fasta_file, algorithm, alignments_output_folder, counter, lock,
+                                      num_files_to_process=len(target_genes), threads=mafft_threads,
+                                      no_supercontigs=no_supercontigs)
+                          for fasta_file in target_genes]
+        for future in future_results:
+            future.add_done_callback(done_callback)
+        wait(future_results, return_when="ALL_COMPLETED")
+    alignment_list = [alignment for alignment in glob.glob(f'{alignments_output_folder}/*.aln.fasta') if
+                      file_exists_and_not_empty(alignment)]
+    logger.info(f'\n{len(alignment_list)} alignments generated from {len(future_results)} fasta files...\n')
+
+
+def clustalo_align(fasta_file, output_folder, counter, lock, num_files_to_process, threads=2):
+    """
+    Uses clustal omega to align a fasta file of sequences, using the algorithm and number of threads provided. Returns
+    filename
+    of the alignment produced.
+    """
+    createfolder(output_folder)
+    fasta_file_basename = os.path.basename(fasta_file)
+    expected_alignment_file = f'{output_folder}/{fasta_file_basename}'
+
+    try:
+        assert file_exists_and_not_empty(expected_alignment_file)
+        logger.debug(f'Alignment exists for {fasta_file_basename}, skipping...')
+    except AssertionError:
+        # clustalomega_cline = ClustalOmegaCommandline(infile=fasta_file, outfile=expected_alignment_file,
+        #                                              verbose=True, auto=True, threads=threads, pileup=True)
+        clustalomega_cline = ClustalOmegaCommandline(infile=fasta_file, outfile=expected_alignment_file,
+                                                     verbose=True, auto=True, threads=threads)
+        clustalomega_cline()
+
+        trimmed_alignment = re.sub('.aln.fasta', '.aln.trimmed.fasta', expected_alignment_file)
+        run_trim = subprocess.run(['trimal', '-in', expected_alignment_file, '-out', trimmed_alignment, '-gapthreshold',
+                                   '0.12', '-terminalonly', '-gw', '1'], check=True)
+    finally:
+        with lock:
+            counter.value += 1
+            print(f'\rFinished generating alignment for file {fasta_file_basename}, '
+                  f'{counter.value}/{num_files_to_process}', end='')
+        return os.path.basename(expected_alignment_file)
+
+
+def clustalo_align_multiprocessing(fasta_to_align_folder, alignments_output_folder, pool_threads=1, clustalo_threads=2):
+    """
+    Generate alignments via function <clustalo_align> using multiprocessing.
+    """
+    createfolder(alignments_output_folder)
+    logger.info('Generating alignments for fasta file without paralogs...\n')
+    target_genes = [file for file in sorted(glob.glob(f'{fasta_to_align_folder}/*.fasta'))]
+
+    with ProcessPoolExecutor(max_workers=pool_threads) as pool:
+        manager = Manager()
+        lock = manager.Lock()
+        counter = manager.Value('i', 0)
+        future_results = [pool.submit(clustalo_align, fasta_file, alignments_output_folder, counter, lock,
+                                      num_files_to_process=len(target_genes), threads=clustalo_threads)
+                          for fasta_file in target_genes]
+        for future in future_results:
+            future.add_done_callback(done_callback)
+        wait(future_results, return_when="ALL_COMPLETED")
+    alignment_list = [alignment for alignment in glob.glob(f'{alignments_output_folder}/*.aln.fasta') if
+                      file_exists_and_not_empty(alignment)]
+    logger.info(f'\n{len(alignment_list)} alignments generated from {len(future_results)} fasta files...\n')
+
+
+def iqtree(alignment_file, output_folder, iqtree_threads, counter, lock, num_files_to_process):
+    """
+    Generate trees from alignments using iqtree
+    """
+    alignment_file_basename = os.path.basename(alignment_file)
+    expected_output_file = f'{output_folder}/{alignment_file_basename}.treefile'
+    print(alignment_file)
+
+    try:
+        assert file_exists_and_not_empty(expected_output_file)
+        logger.debug(f'Output exists for {expected_output_file}, skipping...')
+        with lock:
+            counter.value += 1
+        return os.path.basename(expected_output_file)
+    except AssertionError:
+        try:
+            # check_iqtree = subprocess.run(['/Users/chrisjackson/miniconda3/bin/iqtree', '-redo', '-pre', f'{output_folder}/{alignment_file_basename}',
+                                          # '-s', alignment_file, '-m', 'GTR+G', '-bb', '1000', '-bnni', '-nt',
+                            # str(iqtree_threads), '-quiet'], check=True)
+            check_iqtree = subprocess.run(['iqtree', '-redo', '-pre',
+                                           f'{output_folder}/{alignment_file_basename}',
+                                           '-s', alignment_file, '-m', 'GTR+G', '-bb', '1000', '-bnni', '-nt',
+                                           str(iqtree_threads), '-quiet'], check=True)
+            print(check_iqtree)
+        except:
+            logger.info(f'No tree produced for {alignment_file}- fewer than 3 sequences in alignment?')
+        with lock:
+            counter.value += 1
+        return os.path.basename(expected_output_file)
+    finally:
+        print(f'\rFinished generating output {os.path.basename(expected_output_file)}, {counter.value}/{num_files_to_process}', end='')
+
+
+def iqtree_multiprocessing(alignments_folder, tree_output_folder, pool_threads=1, iqtree_threads=2):
+    """
+    Generate iqtree trees using multiprocessing.
+    """
+    createfolder(tree_output_folder)
+    logger.info('Generating trees from alignments...\n')
+    alignments = [file for file in sorted(glob.glob(f'{alignments_folder}/*trimmed.fasta'))]
+    # print(alignments)
+
+    with ProcessPoolExecutor(max_workers=pool_threads) as pool:
+        manager = Manager()
+        lock = manager.Lock()
+        counter = manager.Value('i', 0)
+        future_results = [pool.submit(iqtree, alignment, tree_output_folder, iqtree_threads, counter, lock,
+                                      num_files_to_process=len(alignments))
+                          for alignment in alignments]
+        for future in future_results:
+            future.add_done_callback(done_callback)
+        wait(future_results, return_when="ALL_COMPLETED")
+    tree_list = [tree for tree in glob.glob(f'{tree_output_folder}/*.treefile') if file_exists_and_not_empty(tree)]
+    logger.info(f'\n{len(tree_list)} alignments generated from {len(future_results)} fasta files...\n')
+
+
+def parse_arguments():
+    parser = argparse.ArgumentParser(description=print(__doc__), formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument('gene_fasta_directory', type=str, help='directory contains fasta files of selected sequences'
+                                                               'corresponding to QC trees.')
+    parser.add_argument('-threads_pool', type=int, help='Number of threads to use for the multiprocessing pool',
+                        required=True)
+    parser.add_argument('-threads_mafft', type=int, help='Number of threads to use for mafft',
+                        required=True)
+    parser.add_argument('target_file', type=str, help='target file in fasta format with outgroup sequences to add '
+                                                      'to each gene')
+    parser.add_argument('-outgroup', action='append', type=str, dest='outgroups', help='<Required> Set flag',
+                        required=True)
+    parser.add_argument('-no_supercontigs', action='store_true', default=False,
+                        help='If specified, realign mafft alignments with clustal omega')
+
+    results = parser.parse_args()
+    return results
+
+
+########################################################################################################################
+########################################################################################################################
+# Run script:
+
+def main():
+    results = parse_arguments()
+
+    folder_01a = f'{cwd}/10a_mafft_realigned'
+    folder_01b = f'{cwd}/10_realigned'
+    folder_02 = f'{cwd}/11_realigned_trees'
+
+    outgroups_dict = get_outgroup_seqs(results.target_file, results.outgroups)
+    # print(outgroups_dict)
+    append_outgroup_seqs(results.gene_fasta_directory, outgroups_dict, results.outgroups)
+    write_outgroup_file(results.gene_fasta_directory)
+    if not results.no_supercontigs:  # i.e. if it's a standard run.
+        mafft_align_multiprocessing(results.gene_fasta_directory, folder_01b, algorithm='linsi',
+                                    pool_threads=results.threads_pool, mafft_threads=results.threads_mafft,
+                                    no_supercontigs=results.no_supercontigs)
+    elif results.no_supercontigs:  # re-align with Clustal Omega.
+        mafft_align_multiprocessing(results.gene_fasta_directory, folder_01a, algorithm='linsi',
+                                    pool_threads=results.threads_pool, mafft_threads=results.threads_mafft,
+                                    no_supercontigs=results.no_supercontigs)
+        clustalo_align_multiprocessing(folder_01a, folder_01b, pool_threads=results.threads_pool,
+                                       clustalo_threads=results.threads_mafft)
+
+    iqtree_multiprocessing(folder_01b, folder_02, pool_threads=results.threads_pool,
+                           iqtree_threads=results.threads_mafft)
+
+
+########################################################################################################################
+########################################################################################################################
+
+if __name__ == '__main__':
+    if not len(sys.argv) >= 1:
+        print(__doc__)
+        sys.exit()
+    sys.exit(main())
+
+########################################################################################################################
+########################################################################################################################
