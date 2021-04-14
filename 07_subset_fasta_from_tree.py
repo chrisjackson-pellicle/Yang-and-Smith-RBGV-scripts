@@ -47,16 +47,18 @@ for i in range(0,len(treefilename)):
 	# THIS MEANS YOU CANNOT HAVE UNDERSCORES IN GENE NAMES
 	# along the way we store the
 	nameholder = outfilename.split(".")[0]
-	nameholder = nameholder.split("_")[0]
+	nameholder = nameholder.split("_")[0]  # CJJ e.g. this will recover '4471' from tree '4471_1to1ortho.tre'
 	# now glob for the alignment file name
 	# THIS REQUIRES NON-NESTED GENE NAMES! Avoid e.g. LEAFY and LEAFYLIKE
 	# You also MUST NOT have multiple fasta files for the same gene in the alignment file folder
 	# all of this may be annoying, but it makes the script maximally flexible in dealing with different
 	# kinds of tree file names and alignment file names
-	alignmentfilename = glob.glob(alignmentfoldername+nameholder+"*.fasta")
+	# alignmentfilename = glob.glob(alignmentfoldername+nameholder+"*.fasta")
+	alignmentfilename = glob.glob(alignmentfoldername + nameholder + "*.trimmed.fasta")
 	alignmentfilename = alignmentfilename[0]
 	outfilename = outfilename[:(len(outfilename)-len(treefileextension))] #slice off extension from output file name
-	print(alignmentfilename)
+	# print(alignmentfilename)
+	print(f'alignmentfilename: {alignmentfilename}')
 	alignment = AlignIO.read(alignmentfilename, "fasta")
 	subalignment = Bio.Align.MultipleSeqAlignment([])
 	for k in range(0,len(alignment)):

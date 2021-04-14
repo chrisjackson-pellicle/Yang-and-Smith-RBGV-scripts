@@ -146,7 +146,8 @@ def reroot_with_monophyletic_outgroups(root):
     else:  # has multiple outgroups. Check monophyly and reroot
         newroot = None
         for node in root.iternodes():
-            if node == root: continue  # skip the root
+            if node == root:
+                continue  # skip the root
             front_names = get_front_names(node)
             back_names = get_back_names(node, root)
             front_in_names, front_out_names, back_in_names, back_out_names = 0, 0, 0, 0
@@ -239,7 +240,8 @@ if __name__ == "__main__":
     outDIR = sys.argv[4] + "/"
 
     for i in os.listdir(inDIR):
-        if not i.endswith(tree_file_ending): continue
+        if not i.endswith(tree_file_ending):
+            continue
         print(i)
         # read in the tree and check number of taxa
         outID = outDIR + get_clusterID(i)
@@ -247,6 +249,7 @@ if __name__ == "__main__":
             intree = newick3.parse(infile.readline())
         curroot = intree
         names = get_front_names(curroot)
+        # print(f'names: {names}')
         num_tips, num_taxa = len(names), len(set(names))
         if num_taxa < MIN_TAXA:
             continue  # not enough taxa
@@ -263,6 +266,7 @@ if __name__ == "__main__":
                     print("check name", name)
                     sys.exit()
             outgroup_names = get_front_outgroup_names(curroot)
+            print(f'outgroup_names: {outgroup_names}')
 
             # if no outgroup at all, do not attempt to resolve gene duplication
             if len(outgroup_names) == 0:

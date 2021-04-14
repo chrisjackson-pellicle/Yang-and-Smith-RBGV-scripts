@@ -199,10 +199,7 @@ def iqtree_multiprocessing(alignments_folder, tree_output_folder, pool_threads=1
 
 
 def parse_arguments():
-    parser = argparse.ArgumentParser(description=print(__doc__),
-                                     # formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-                                     formatter_class=argparse.RawDescriptionHelpFormatter,
-                                     epilog='text here')
+    parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('alignment_directory', type=str, help='directory contains fasta files including paralogs')
     parser.add_argument('-threads_pool', type=int, help='<Required> Set flag',
                         required=True)
@@ -220,7 +217,7 @@ def parse_arguments():
 def main():
     results = parse_arguments()
 
-    folder_01 = f'{cwd}/05_tree_files'
+    folder_01 = f'{cwd}/03_tree_files'
     print(results.alignment_directory, results.threads_pool, results.threads_iqtree)
 
     iqtree_multiprocessing(results.alignment_directory, folder_01, pool_threads=results.threads_pool,

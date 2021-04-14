@@ -149,86 +149,86 @@ def done_callback(future_returned):
     return result
 
 
-def get_outgroup_seqs(target_fasta_file, outgroup_list):
-    """
-    Searches a list of outgroup taxon names against a fasta file of possible outgroup sequences
-    (e.g. the 353 angiosperm target file), and checks if there's an outgroup taxon for each gene. Prints a warning if
-    not.
-    """
-    unique_gene_names = set()
-    outgroup_lists = defaultdict(list)
-    with open(target_fasta_file, 'r') as target_file:
-        seqs = SeqIO.parse(target_file, 'fasta')
-        for seq in seqs:
-            taxon_name = re.split('-', seq.name)[0]
-            gene_id = re.split('-', seq.name)[-1]
-            unique_gene_names.add(gene_id)  # e.g. '4471'
-            if taxon_name in outgroup_list:
-                outgroup_lists[gene_id].append(seq)
-    if len(outgroup_lists) == len(unique_gene_names):
-        logger.info(f'Found an outgroup for each of {len(unique_gene_names)} genes in the targetfile provided...')
-    else:
-        # sys.exit(f'Only found an outgroup for {len(outgroup_lists)} of {len(unique_gene_names)} genes in the '
-        #          f'targetfile provided! Perhaps add more species name for outgroup selection?')
-        # logger.info(f'Only found an outgroup for {len(outgroup_lists)} of {len(unique_gene_names)} genes in the '
-        #             f'targetfile provided! Perhaps add more species name for outgroup selection?')
-        pass
-    return outgroup_lists
+# def get_outgroup_seqs(target_fasta_file, outgroup_list):
+#     """
+#     Searches a list of outgroup taxon names against a fasta file of possible outgroup sequences
+#     (e.g. the 353 angiosperm target file), and checks if there's an outgroup taxon for each gene. Prints a warning if
+#     not.
+#     """
+#     unique_gene_names = set()
+#     outgroup_lists = defaultdict(list)
+#     with open(target_fasta_file, 'r') as target_file:
+#         seqs = SeqIO.parse(target_file, 'fasta')
+#         for seq in seqs:
+#             taxon_name = re.split('-', seq.name)[0]
+#             gene_id = re.split('-', seq.name)[-1]
+#             unique_gene_names.add(gene_id)  # e.g. '4471'
+#             if taxon_name in outgroup_list:
+#                 outgroup_lists[gene_id].append(seq)
+#     if len(outgroup_lists) == len(unique_gene_names):
+#         logger.info(f'Found an outgroup for each of {len(unique_gene_names)} genes in the targetfile provided...')
+#     else:
+#         # sys.exit(f'Only found an outgroup for {len(outgroup_lists)} of {len(unique_gene_names)} genes in the '
+#         #          f'targetfile provided! Perhaps add more species name for outgroup selection?')
+#         # logger.info(f'Only found an outgroup for {len(outgroup_lists)} of {len(unique_gene_names)} genes in the '
+#         #             f'targetfile provided! Perhaps add more species name for outgroup selection?')
+#         pass
+#     return outgroup_lists
 
 
-def append_outgroup_seqs(fasta_directory, outgroups_dict, outgroups_list):
-    """
-    Inserts an outgroup sequence recovered from the outgroups file into the fasta gene list recovered from QC'd trees.
-    """
-    for fasta_file in glob.glob(f'{fasta_directory}/*.fa'):
-        basename = os.path.basename(fasta_file)
-        # gene_id = basename.split('.')[0]
-        gene_id = re.split('[.]|_', basename)[0]
-        seqs_dict = SeqIO.to_dict(SeqIO.parse(fasta_file, 'fasta'))
-        if seqs_dict:  # Don't process HybPiper paralog fasta files without sequences
-            for seq in outgroups_dict[gene_id]:
-                seq_taxon_name = seq.name.split('-')[0]
-                try:
-                    seqs_dict[seq_taxon_name].name = f'{seq.name.split("-")[0]}.outgroup'
-                    seqs_dict[seq_taxon_name].id = f'{seq.id.split("-")[0]}.outgroup'
-                    seqs_dict[seq_taxon_name].description = ''
-                except KeyError:  # i.e. the outgroup sequence isn't already in the fasta file
-                    print(f'Sequence {seq_taxon_name} is not already in the fasta file')
-                    seq.name = f'{seq.name.split("-")[0]}.outgroup'
-                    seq.id = f'{seq.id.split("-")[0]}.outgroup'
-                    seq.description = ''
-                    seqs_dict[seq.name] = seq
-            with open(f'{fasta_directory}/{gene_id}.outgroup_added.fasta', 'w') as outgroup_added:
-                SeqIO.write(seqs_dict.values(), outgroup_added, 'fasta')
+# def append_outgroup_seqs(fasta_directory, outgroups_dict, outgroups_list):
+#     """
+#     Inserts an outgroup sequence recovered from the outgroups file into the fasta gene list recovered from QC'd trees.
+#     """
+#     for fasta_file in glob.glob(f'{fasta_directory}/*.fa'):
+#         basename = os.path.basename(fasta_file)
+#         # gene_id = basename.split('.')[0]
+#         gene_id = re.split('[.]|_', basename)[0]
+#         seqs_dict = SeqIO.to_dict(SeqIO.parse(fasta_file, 'fasta'))
+#         if seqs_dict:  # Don't process HybPiper paralog fasta files without sequences
+#             for seq in outgroups_dict[gene_id]:
+#                 seq_taxon_name = seq.name.split('-')[0]
+#                 try:
+#                     seqs_dict[seq_taxon_name].name = f'{seq.name.split("-")[0]}.outgroup'
+#                     seqs_dict[seq_taxon_name].id = f'{seq.id.split("-")[0]}.outgroup'
+#                     seqs_dict[seq_taxon_name].description = ''
+#                 except KeyError:  # i.e. the outgroup sequence isn't already in the fasta file
+#                     print(f'Sequence {seq_taxon_name} is not already in the fasta file')
+#                     seq.name = f'{seq.name.split("-")[0]}.outgroup'
+#                     seq.id = f'{seq.id.split("-")[0]}.outgroup'
+#                     seq.description = ''
+#                     seqs_dict[seq.name] = seq
+#             with open(f'{fasta_directory}/{gene_id}.outgroup_added.fasta', 'w') as outgroup_added:
+#                 SeqIO.write(seqs_dict.values(), outgroup_added, 'fasta')
 
 
-def write_outgroup_file(outgroups_inserted_folder):
-    """
-    Write a tab-separated outgroup file for the Y&S pruning scripts, of the form:
-
-    IN  Euchiton_limosus
-    IN  Euchiton_sphaericus
-    IN  Pterochaeta_paniculata
-    OUT sunf
-    etc...
-
-    """
-    unique_outgroup_names = set()
-    unique_ingroup_names = set()
-    for fasta in glob.glob(f'{outgroups_inserted_folder}/*.outgroup_added.fasta'):
-        seqs = SeqIO.parse(fasta, 'fasta')
-        for seq in seqs:
-            if re.search('outgroup', seq.name):
-                name = seq.name.split('.')[0]
-                unique_outgroup_names.add(name)
-            else:
-                name = seq.name.split('.')[0]
-                unique_ingroup_names.add(name)
-    with open('in_and_outgroups_list.txt', 'w') as group_list:
-        for taxon in unique_outgroup_names:
-            group_list.write(f'OUT\t{taxon}\n')
-        for taxon in unique_ingroup_names:
-            group_list.write(f'IN\t{taxon}\n')
+# def write_outgroup_file(outgroups_inserted_folder):
+#     """
+#     Write a tab-separated outgroup file for the Y&S pruning scripts, of the form:
+#
+#     IN  Euchiton_limosus
+#     IN  Euchiton_sphaericus
+#     IN  Pterochaeta_paniculata
+#     OUT sunf
+#     etc...
+#
+#     """
+#     unique_outgroup_names = set()
+#     unique_ingroup_names = set()
+#     for fasta in glob.glob(f'{outgroups_inserted_folder}/*.outgroup_added.fasta'):
+#         seqs = SeqIO.parse(fasta, 'fasta')
+#         for seq in seqs:
+#             if re.search('outgroup', seq.name):
+#                 name = seq.name.split('.')[0]
+#                 unique_outgroup_names.add(name)
+#             else:
+#                 name = seq.name.split('.')[0]
+#                 unique_ingroup_names.add(name)
+#     with open('in_and_outgroups_list.txt', 'w') as group_list:
+#         for taxon in unique_outgroup_names:
+#             group_list.write(f'OUT\t{taxon}\n')
+#         for taxon in unique_ingroup_names:
+#             group_list.write(f'IN\t{taxon}\n')
 
 
 def mafft_align(fasta_file, algorithm, output_folder, counter, lock, num_files_to_process, threads=2,
@@ -400,7 +400,7 @@ def iqtree_multiprocessing(alignments_folder, tree_output_folder, pool_threads=1
     """
     createfolder(tree_output_folder)
     logger.info('Generating trees from alignments...\n')
-    alignments = [file for file in sorted(glob.glob(f'{alignments_folder}/*trimmed.fasta'))]
+    alignments = [file for file in sorted(glob.glob(f'{alignments_folder}/*.trimmed.fasta'))]
     # print(alignments)
 
     with ProcessPoolExecutor(max_workers=pool_threads) as pool:
@@ -414,23 +414,116 @@ def iqtree_multiprocessing(alignments_folder, tree_output_folder, pool_threads=1
             future.add_done_callback(done_callback)
         wait(future_results, return_when="ALL_COMPLETED")
     tree_list = [tree for tree in glob.glob(f'{tree_output_folder}/*.treefile') if file_exists_and_not_empty(tree)]
-    logger.info(f'\n{len(tree_list)} alignments generated from {len(future_results)} fasta files...\n')
+    logger.info(f'\n{len(tree_list)} trees generated from {len(future_results)} fasta files...\n')
+
+
+def add_outgroup_seqs(original_paralog_gene_fasta_directory, folder_of_qc_paralog_files, list_of_internal_outgroups,
+                      file_of_external_outgroups, list_of_external_outgroups=None):
+    """
+    Check the number of genes that have an outgroup sequence in either the list_of_internal_outgroups (i.e.
+    corresponding to samples within the existing [ORIGINAL - might have been pruned out by this stage] paralog fasta
+    file), or within a file of external outgroup sequences (i.e. new taxa to add as outgroups). Add internal (if
+    removed by QC steps) and external outgroup seqs to each alignment
+
+    Write a tab-separated outgroup file for the Y&S pruning scripts, of the form:
+
+    IN  Euchiton_limosus
+    IN  Euchiton_sphaericus
+    IN  Pterochaeta_paniculata
+    OUT sunf
+    etc...
+
+    """
+    print(f'list_of_internal_outgroups: {list_of_internal_outgroups}')
+    print(f'list_of_external_outgroups: {list_of_external_outgroups}')
+
+    # Read in original paralog fasta files, and create a dictionary of gene_id:list_of_seq_names for taxa in
+    # list_of_internal_outgroups:
+    internal_outgroup_dict = defaultdict(list)
+    all_paralog_taxon_names = set()
+    for fasta in glob.glob(f'{original_paralog_gene_fasta_directory}/*.trimmed_hmm.fasta'):
+        gene_id = os.path.basename(fasta).split('.')[0]  # CJJ get prefix e.g. '4471'
+        seqs = SeqIO.parse(fasta, 'fasta')
+        for seq in seqs:
+            seq_name_prefix = seq.name.split('.')[0]  # CJJ this assumes that there are no other dots ('.') in the
+            # sequence name
+            all_paralog_taxon_names.add(seq_name_prefix)
+            if seq_name_prefix in list_of_internal_outgroups:
+                internal_outgroup_dict[gene_id].append(seq)
+
+    # Read in external outgroups file, and create a dictionary of gene_id:list_of_seq_names, either for all seqs if
+    # no external outgroup taxa specified, or for specified taxa only:
+    external_outgroup_dict = defaultdict(list)
+    if file_of_external_outgroups:  # CJJ dict not created if no outgroups file provided
+        seqs = SeqIO.parse(file_of_external_outgroups, 'fasta')
+        for seq in seqs:
+            gene_id = seq.name.split('-')[-1]  # CJJ get gene id e.g. '4471'
+            taxon = '-'.join(seq.name.split('-')[:-1])  # CJJ e.g. 'AMBTR'
+            if list_of_external_outgroups:
+                if taxon in list_of_external_outgroups:
+                    seq.name = taxon  # CJJ i.e. we don't want the suffix e.g. '4471' present in the fasta file
+                    seq.id = taxon
+                    external_outgroup_dict[gene_id].append(seq)
+            else:
+                seq.name = taxon  # CJJ i.e. we don't want the suffix e.g. '4471' present in the fasta file
+                seq.id = taxon
+                external_outgroup_dict[gene_id].append(seq)
+    # print(external_outgroup_dict)
+
+    # Read in QC-d paralog files, add outgroup seqs, and write new fasta files ready for alignment:
+    for fasta in glob.glob(f'{folder_of_qc_paralog_files}/*.selected.fa'):
+        gene_id = re.sub('_[1-9]$', '', str(os.path.basename(fasta).split('.')[0]))
+        # print(f'gene_id: {gene_id}')
+        seqs = list(SeqIO.parse(fasta, 'fasta'))
+        seq_names = [seq.name for seq in seqs]
+        external_outgroup_seqs = external_outgroup_dict[gene_id]
+        # print(f'external_outgroup_seqs: {external_outgroup_seqs}')
+        internal_outgroup_seqs = internal_outgroup_dict[gene_id]
+
+        for seq in internal_outgroup_seqs:
+            if seq.name not in seq_names:  # CJJ i.e. if the internal outgroup seq has been removed during QC steps
+                seqs.append(seq)
+        seqs.extend(external_outgroup_seqs)  # CJJ add external outgroup seqs
+
+        # print(seqs)
+
+        # Write new files with outgroup sequences added (in the same direcroty as QC-d paralog files):
+        with open(f'{folder_of_qc_paralog_files}/{gene_id}.outgroup_added.fasta', 'w') as outgroup_added:
+            SeqIO.write(seqs, outgroup_added, 'fasta')
+
+        # Write the IN and OUT taxon text file required by some paralogy resolution methods (MO, RT):
+        external_outgroup_taxon_names = ['-'.join(seq.name.split('-')[:-1]) if len(seq.name.split('-')) > 1 else
+                                         seq.name.split('-')[0] for seq in external_outgroup_seqs]
+        ingroup_taxon_names = [name for name in all_paralog_taxon_names if name not in list_of_internal_outgroups]
+        with open('in_and_outgroups_list.txt', 'w') as group_list:
+            for taxon in list_of_internal_outgroups:
+                group_list.write(f'OUT\t{taxon}\n')
+            for taxon in external_outgroup_taxon_names:
+                group_list.write(f'OUT\t{taxon}\n')
+            for taxon in ingroup_taxon_names:
+                group_list.write(f'IN\t{taxon}\n')
 
 
 def parse_arguments():
-    parser = argparse.ArgumentParser(description=print(__doc__), formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('gene_fasta_directory', type=str, help='directory contains fasta files of selected sequences'
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('original_paralog_gene_fasta_directory', type=str,
+                        help='directory containing the original paralog fasta files; for recovering internal '
+                             'outgroups that have been removed during QC steps')
+    parser.add_argument('gene_fasta_directory', type=str, help='directory contains fasta files of selected sequences '
                                                                'corresponding to QC trees.')
     parser.add_argument('-threads_pool', type=int, help='Number of threads to use for the multiprocessing pool',
                         required=True)
     parser.add_argument('-threads_mafft', type=int, help='Number of threads to use for mafft',
                         required=True)
-    parser.add_argument('target_file', type=str, help='target file in fasta format with outgroup sequences to add '
-                                                      'to each gene')
-    parser.add_argument('-outgroup', action='append', type=str, dest='outgroups', help='<Required> Set flag',
-                        required=True)
     parser.add_argument('-no_supercontigs', action='store_true', default=False,
                         help='If specified, realign mafft alignments with clustal omega')
+    parser.add_argument('-external_outgroups_file', type=str,
+                        help='file in fasta format with additional outgroup sequences to add to each gene')
+    parser.add_argument('-external_outgroup', action='append', type=str, dest='external_outgroups',
+                        help='<Required> Set flag. If one or more taxon names are provided, only use these sequences '
+                             'from the user-provided external_outgroups_file', required=False)
+    parser.add_argument('-internal_outgroup', action='append', type=str, dest='internal_outgroups',
+                        help='<Required> Set flag', required=False, default=None)
 
     results = parser.parse_args()
     return results
@@ -443,14 +536,24 @@ def parse_arguments():
 def main():
     results = parse_arguments()
 
-    folder_01a = f'{cwd}/10a_mafft_realigned'
-    folder_01b = f'{cwd}/10_realigned'
-    folder_02 = f'{cwd}/11_realigned_trees'
+    folder_01a = f'{cwd}/08a_mafft_realigned'
+    folder_01b = f'{cwd}/08_realigned'
+    folder_02 = f'{cwd}/09_realigned_trees'
 
-    outgroups_dict = get_outgroup_seqs(results.target_file, results.outgroups)
-    # print(outgroups_dict)
-    append_outgroup_seqs(results.gene_fasta_directory, outgroups_dict, results.outgroups)
-    write_outgroup_file(results.gene_fasta_directory)
+    # Add outgroup sequences, both internal (if removed by the tree QC steps) and external (if a fasta file of
+    # external outgroup sequences is provided).
+    add_outgroup_seqs(results.original_paralog_gene_fasta_directory,
+                      results.gene_fasta_directory,
+                      results.internal_outgroups,
+                      results.external_outgroups_file,
+                      list_of_external_outgroups=results.external_outgroups)
+
+
+    # outgroups_dict = get_outgroup_seqs(results.target_file, results.outgroups)
+    # # print(outgroups_dict)
+    # append_outgroup_seqs(results.gene_fasta_directory, outgroups_dict, results.outgroups)
+    # write_outgroup_file(results.gene_fasta_directory)
+
     if not results.no_supercontigs:  # i.e. if it's a standard run.
         mafft_align_multiprocessing(results.gene_fasta_directory, folder_01b, algorithm='linsi',
                                     pool_threads=results.threads_pool, mafft_threads=results.threads_mafft,
