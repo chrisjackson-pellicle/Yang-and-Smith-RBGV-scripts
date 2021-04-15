@@ -219,7 +219,10 @@ def run_hmm_cleaner(input_folder, output_folder):
             except:
                 pass
         except subprocess.CalledProcessError:
+            hmm_file_output = re.sub('aln.trimmed.fasta', 'aln.hmm.trimmed.fasta', str(alignment))
             logger.info(f"Couldn't run HmmCleaner for alignment {alignment} using command {command}")
+            logger.info(f'Copying alignment {alignment} to {hmm_file_output} anyway...')
+            shutil.copy(alignment, hmm_file_output)
 
     # for file in glob.glob(f"{input_folder}/*hmm*"):
     for file in glob.glob(f"{input_folder}/*aln.hmm.trimmed*"):
