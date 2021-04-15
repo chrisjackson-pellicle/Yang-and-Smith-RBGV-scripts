@@ -149,88 +149,6 @@ def done_callback(future_returned):
     return result
 
 
-# def get_outgroup_seqs(target_fasta_file, outgroup_list):
-#     """
-#     Searches a list of outgroup taxon names against a fasta file of possible outgroup sequences
-#     (e.g. the 353 angiosperm target file), and checks if there's an outgroup taxon for each gene. Prints a warning if
-#     not.
-#     """
-#     unique_gene_names = set()
-#     outgroup_lists = defaultdict(list)
-#     with open(target_fasta_file, 'r') as target_file:
-#         seqs = SeqIO.parse(target_file, 'fasta')
-#         for seq in seqs:
-#             taxon_name = re.split('-', seq.name)[0]
-#             gene_id = re.split('-', seq.name)[-1]
-#             unique_gene_names.add(gene_id)  # e.g. '4471'
-#             if taxon_name in outgroup_list:
-#                 outgroup_lists[gene_id].append(seq)
-#     if len(outgroup_lists) == len(unique_gene_names):
-#         logger.info(f'Found an outgroup for each of {len(unique_gene_names)} genes in the targetfile provided...')
-#     else:
-#         # sys.exit(f'Only found an outgroup for {len(outgroup_lists)} of {len(unique_gene_names)} genes in the '
-#         #          f'targetfile provided! Perhaps add more species name for outgroup selection?')
-#         # logger.info(f'Only found an outgroup for {len(outgroup_lists)} of {len(unique_gene_names)} genes in the '
-#         #             f'targetfile provided! Perhaps add more species name for outgroup selection?')
-#         pass
-#     return outgroup_lists
-
-
-# def append_outgroup_seqs(fasta_directory, outgroups_dict, outgroups_list):
-#     """
-#     Inserts an outgroup sequence recovered from the outgroups file into the fasta gene list recovered from QC'd trees.
-#     """
-#     for fasta_file in glob.glob(f'{fasta_directory}/*.fa'):
-#         basename = os.path.basename(fasta_file)
-#         # gene_id = basename.split('.')[0]
-#         gene_id = re.split('[.]|_', basename)[0]
-#         seqs_dict = SeqIO.to_dict(SeqIO.parse(fasta_file, 'fasta'))
-#         if seqs_dict:  # Don't process HybPiper paralog fasta files without sequences
-#             for seq in outgroups_dict[gene_id]:
-#                 seq_taxon_name = seq.name.split('-')[0]
-#                 try:
-#                     seqs_dict[seq_taxon_name].name = f'{seq.name.split("-")[0]}.outgroup'
-#                     seqs_dict[seq_taxon_name].id = f'{seq.id.split("-")[0]}.outgroup'
-#                     seqs_dict[seq_taxon_name].description = ''
-#                 except KeyError:  # i.e. the outgroup sequence isn't already in the fasta file
-#                     print(f'Sequence {seq_taxon_name} is not already in the fasta file')
-#                     seq.name = f'{seq.name.split("-")[0]}.outgroup'
-#                     seq.id = f'{seq.id.split("-")[0]}.outgroup'
-#                     seq.description = ''
-#                     seqs_dict[seq.name] = seq
-#             with open(f'{fasta_directory}/{gene_id}.outgroup_added.fasta', 'w') as outgroup_added:
-#                 SeqIO.write(seqs_dict.values(), outgroup_added, 'fasta')
-
-
-# def write_outgroup_file(outgroups_inserted_folder):
-#     """
-#     Write a tab-separated outgroup file for the Y&S pruning scripts, of the form:
-#
-#     IN  Euchiton_limosus
-#     IN  Euchiton_sphaericus
-#     IN  Pterochaeta_paniculata
-#     OUT sunf
-#     etc...
-#
-#     """
-#     unique_outgroup_names = set()
-#     unique_ingroup_names = set()
-#     for fasta in glob.glob(f'{outgroups_inserted_folder}/*.outgroup_added.fasta'):
-#         seqs = SeqIO.parse(fasta, 'fasta')
-#         for seq in seqs:
-#             if re.search('outgroup', seq.name):
-#                 name = seq.name.split('.')[0]
-#                 unique_outgroup_names.add(name)
-#             else:
-#                 name = seq.name.split('.')[0]
-#                 unique_ingroup_names.add(name)
-#     with open('in_and_outgroups_list.txt', 'w') as group_list:
-#         for taxon in unique_outgroup_names:
-#             group_list.write(f'OUT\t{taxon}\n')
-#         for taxon in unique_ingroup_names:
-#             group_list.write(f'IN\t{taxon}\n')
-
-
 def mafft_align(fasta_file, algorithm, output_folder, counter, lock, num_files_to_process, threads=2,
                 no_supercontigs=False):
     """
@@ -384,7 +302,7 @@ def iqtree(alignment_file, output_folder, iqtree_threads, counter, lock, num_fil
                                            f'{output_folder}/{alignment_file_basename}',
                                            '-s', alignment_file, '-m', 'GTR+G', '-bb', '1000', '-bnni', '-nt',
                                            str(iqtree_threads), '-quiet'], check=True)
-            print(check_iqtree)
+            # print(check_iqtree)
         except:
             logger.info(f'No tree produced for {alignment_file}- fewer than 3 sequences in alignment?')
         with lock:
@@ -418,7 +336,7 @@ def iqtree_multiprocessing(alignments_folder, tree_output_folder, pool_threads=1
 
 
 def add_outgroup_seqs(original_paralog_gene_fasta_directory, folder_of_qc_paralog_files, list_of_internal_outgroups,
-                      file_of_external_outgroups, list_of_external_outgroups=None):
+                      file_of_external_outgroups, output_folder, list_of_external_outgroups=None):
     """
     Check the number of genes that have an outgroup sequence in either the list_of_internal_outgroups (i.e.
     corresponding to samples within the existing [ORIGINAL - might have been pruned out by this stage] paralog fasta
@@ -436,6 +354,8 @@ def add_outgroup_seqs(original_paralog_gene_fasta_directory, folder_of_qc_paralo
     """
     print(f'list_of_internal_outgroups: {list_of_internal_outgroups}')
     print(f'list_of_external_outgroups: {list_of_external_outgroups}')
+
+    createfolder(output_folder) # for the outgroups added fasta files
 
     # Read in original paralog fasta files, and create a dictionary of gene_id:list_of_seq_names for taxa in
     # list_of_internal_outgroups:
@@ -468,7 +388,9 @@ def add_outgroup_seqs(original_paralog_gene_fasta_directory, folder_of_qc_paralo
                 seq.name = taxon  # CJJ i.e. we don't want the suffix e.g. '4471' present in the fasta file
                 seq.id = taxon
                 external_outgroup_dict[gene_id].append(seq)
-    # print(external_outgroup_dict)
+    all_outgroup_taxon_names = set([seq.name for gene_id, seq_list in external_outgroup_dict.items()
+                                    for seq in seq_list])
+    # print(f'all_outgroup_taxon_names: {all_outgroup_taxon_names}')
 
     # Read in QC-d paralog files, add outgroup seqs, and write new fasta files ready for alignment:
     for fasta in glob.glob(f'{folder_of_qc_paralog_files}/*.selected.fa'):
@@ -482,26 +404,25 @@ def add_outgroup_seqs(original_paralog_gene_fasta_directory, folder_of_qc_paralo
 
         for seq in internal_outgroup_seqs:
             if seq.name not in seq_names:  # CJJ i.e. if the internal outgroup seq has been removed during QC steps
+                print(f'Sequence {seq.name} was removed by previous QC steps - adding back in as outgroup sequence '
+                      f'to file {os.path.basename(fasta)}!\n')
                 seqs.append(seq)
         seqs.extend(external_outgroup_seqs)  # CJJ add external outgroup seqs
 
-        # print(seqs)
-
-        # Write new files with outgroup sequences added (in the same direcroty as QC-d paralog files):
-        with open(f'{folder_of_qc_paralog_files}/{gene_id}.outgroup_added.fasta', 'w') as outgroup_added:
+        # Write new files with outgroup sequences added (in the same directory as QC-d paralog files): #TODO: change
+        #  this or it breaks Nextflow resume!!!
+        with open(f'{output_folder}/{gene_id}.outgroup_added.fasta', 'w') as outgroup_added:
             SeqIO.write(seqs, outgroup_added, 'fasta')
 
-        # Write the IN and OUT taxon text file required by some paralogy resolution methods (MO, RT):
-        external_outgroup_taxon_names = ['-'.join(seq.name.split('-')[:-1]) if len(seq.name.split('-')) > 1 else
-                                         seq.name.split('-')[0] for seq in external_outgroup_seqs]
-        ingroup_taxon_names = [name for name in all_paralog_taxon_names if name not in list_of_internal_outgroups]
-        with open('in_and_outgroups_list.txt', 'w') as group_list:
-            for taxon in list_of_internal_outgroups:
-                group_list.write(f'OUT\t{taxon}\n')
-            for taxon in external_outgroup_taxon_names:
-                group_list.write(f'OUT\t{taxon}\n')
-            for taxon in ingroup_taxon_names:
-                group_list.write(f'IN\t{taxon}\n')
+    # Write the IN and OUT taxon text file required by some paralogy resolution methods (MO, RT):
+    ingroup_taxon_names = [name for name in all_paralog_taxon_names if name not in list_of_internal_outgroups]
+    with open('in_and_outgroups_list.txt', 'w') as group_list:
+        for taxon in list_of_internal_outgroups:
+            group_list.write(f'OUT\t{taxon}\n')
+        for taxon in all_outgroup_taxon_names:
+            group_list.write(f'OUT\t{taxon}\n')
+        for taxon in ingroup_taxon_names:
+            group_list.write(f'IN\t{taxon}\n')
 
 
 def parse_arguments():
@@ -536,9 +457,10 @@ def parse_arguments():
 def main():
     results = parse_arguments()
 
-    folder_01a = f'{cwd}/08a_mafft_realigned'
-    folder_01b = f'{cwd}/08_realigned'
-    folder_02 = f'{cwd}/09_realigned_trees'
+    folder_00 = f'{cwd}/08_outgroups_added'
+    folder_01a = f'{cwd}/09a_mafft_realigned'
+    folder_01b = f'{cwd}/09_realigned'
+    folder_02 = f'{cwd}/10_realigned_trees'
 
     # Add outgroup sequences, both internal (if removed by the tree QC steps) and external (if a fasta file of
     # external outgroup sequences is provided).
@@ -546,26 +468,31 @@ def main():
                       results.gene_fasta_directory,
                       results.internal_outgroups,
                       results.external_outgroups_file,
+                      folder_00,
                       list_of_external_outgroups=results.external_outgroups)
 
-
-    # outgroups_dict = get_outgroup_seqs(results.target_file, results.outgroups)
-    # # print(outgroups_dict)
-    # append_outgroup_seqs(results.gene_fasta_directory, outgroups_dict, results.outgroups)
-    # write_outgroup_file(results.gene_fasta_directory)
-
     if not results.no_supercontigs:  # i.e. if it's a standard run.
-        mafft_align_multiprocessing(results.gene_fasta_directory, folder_01b, algorithm='linsi',
-                                    pool_threads=results.threads_pool, mafft_threads=results.threads_mafft,
+        mafft_align_multiprocessing(folder_00,
+                                    folder_01b,
+                                    algorithm='linsi',
+                                    pool_threads=results.threads_pool,
+                                    mafft_threads=results.threads_mafft,
                                     no_supercontigs=results.no_supercontigs)
     elif results.no_supercontigs:  # re-align with Clustal Omega.
-        mafft_align_multiprocessing(results.gene_fasta_directory, folder_01a, algorithm='linsi',
-                                    pool_threads=results.threads_pool, mafft_threads=results.threads_mafft,
+        mafft_align_multiprocessing(results.gene_fasta_directory,
+                                    folder_01a,
+                                    algorithm='linsi',
+                                    pool_threads=results.threads_pool,
+                                    mafft_threads=results.threads_mafft,
                                     no_supercontigs=results.no_supercontigs)
-        clustalo_align_multiprocessing(folder_01a, folder_01b, pool_threads=results.threads_pool,
+        clustalo_align_multiprocessing(folder_01a,
+                                       folder_01b,
+                                       pool_threads=results.threads_pool,
                                        clustalo_threads=results.threads_mafft)
 
-    iqtree_multiprocessing(folder_01b, folder_02, pool_threads=results.threads_pool,
+    iqtree_multiprocessing(folder_01b,
+                           folder_02,
+                           pool_threads=results.threads_pool,
                            iqtree_threads=results.threads_mafft)
 
 
