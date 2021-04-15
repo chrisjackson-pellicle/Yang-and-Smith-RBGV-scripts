@@ -441,7 +441,7 @@ def add_outgroup_seqs(original_paralog_gene_fasta_directory, folder_of_qc_paralo
     # list_of_internal_outgroups:
     internal_outgroup_dict = defaultdict(list)
     all_paralog_taxon_names = set()
-    for fasta in glob.glob(f'{original_paralog_gene_fasta_directory}/*.trimmed_hmm.fasta'):
+    for fasta in glob.glob(f'{original_paralog_gene_fasta_directory}/*.hmm.trimmed.fasta'):
         gene_id = os.path.basename(fasta).split('.')[0]  # CJJ get prefix e.g. '4471'
         seqs = SeqIO.parse(fasta, 'fasta')
         for seq in seqs:
