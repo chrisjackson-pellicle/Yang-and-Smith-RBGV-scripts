@@ -368,7 +368,8 @@ def add_outgroup_seqs(original_paralog_gene_fasta_directory, folder_of_qc_paralo
             seq_name_prefix = seq.name.split('.')[0]  # CJJ this assumes that there are no other dots ('.') in the
             # sequence name
             all_paralog_taxon_names.add(seq_name_prefix)
-            if seq_name_prefix in list_of_internal_outgroups:
+            if list_of_internal_outgroups and seq_name_prefix in list_of_internal_outgroups:
+            # if seq_name_prefix in list_of_internal_outgroups:
                 internal_outgroup_dict[gene_id].append(seq)
 
     # Read in external outgroups file, and create a dictionary of gene_id:list_of_seq_names, either for all seqs if
@@ -388,8 +389,8 @@ def add_outgroup_seqs(original_paralog_gene_fasta_directory, folder_of_qc_paralo
                 seq.name = taxon  # CJJ i.e. we don't want the suffix e.g. '4471' present in the fasta file
                 seq.id = taxon
                 external_outgroup_dict[gene_id].append(seq)
-    all_outgroup_taxon_names = set([seq.name for gene_id, seq_list in external_outgroup_dict.items()
-                                    for seq in seq_list])
+    all_external_outgroup_taxon_names = set([seq.name for gene_id, seq_list in external_outgroup_dict.items() for seq
+                                             in seq_list])
     # print(f'all_outgroup_taxon_names: {all_outgroup_taxon_names}')
 
     # Read in QC-d paralog files, add outgroup seqs, and write new fasta files ready for alignment:
@@ -415,11 +416,15 @@ def add_outgroup_seqs(original_paralog_gene_fasta_directory, folder_of_qc_paralo
             SeqIO.write(seqs, outgroup_added, 'fasta')
 
     # Write the IN and OUT taxon text file required by some paralogy resolution methods (MO, RT):
-    ingroup_taxon_names = [name for name in all_paralog_taxon_names if name not in list_of_internal_outgroups]
+    if list_of_internal_outgroups:
+        ingroup_taxon_names = [name for name in all_paralog_taxon_names if name not in list_of_internal_outgroups]
+    else:
+        ingroup_taxon_names = [name for name in all_paralog_taxon_names]
     with open('in_and_outgroups_list.txt', 'w') as group_list:
-        for taxon in list_of_internal_outgroups:
-            group_list.write(f'OUT\t{taxon}\n')
-        for taxon in all_outgroup_taxon_names:
+        if list_of_internal_outgroups:
+            for taxon in list_of_internal_outgroups:
+                group_list.write(f'OUT\t{taxon}\n')
+        for taxon in all_external_outgroup_taxon_names:
             group_list.write(f'OUT\t{taxon}\n')
         for taxon in ingroup_taxon_names:
             group_list.write(f'IN\t{taxon}\n')
