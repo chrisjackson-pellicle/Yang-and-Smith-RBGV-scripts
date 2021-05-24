@@ -38,7 +38,8 @@ def RT(homoDIR, tree_file_eneding, outDIR, min_ingroup_taxa, taxon_code_file_fil
     print("Outgroups:", OUTGROUPS)
 
     for treefile in os.listdir(homoDIR):
-        if not treefile.endswith(tree_file_eneding): continue
+        if not treefile.endswith(tree_file_eneding):
+            continue
         with open(homoDIR + treefile, "r") as infile:
             intree = newick3.parse(infile.readline())
         curroot = intree
@@ -57,7 +58,8 @@ def RT(homoDIR, tree_file_eneding, outDIR, min_ingroup_taxa, taxon_code_file_fil
                 outgroup_names.append(name)
             else:
                 print(name, "not in ingroups or outgroups")
-                sys.exit()
+                # sys.exit()
+                continue  # CJJ should just skip these trees, not stop completely
         if len(set(ingroup_names)) < min_ingroup_taxa:
             print("not enough ingroup taxa in tree")
             continue

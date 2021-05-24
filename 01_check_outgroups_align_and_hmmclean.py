@@ -263,6 +263,22 @@ def run_hmm_cleaner(input_folder, output_folder):
 #                 SeqIO.write(seqs_dict.values(), outgroup_added, 'fasta')
 
 
+def remove_r_prefix(alignment):
+    """
+    Takes a fasta alignment, removes any '_R_' prefix in fasta headers (inserted by mafft if a sequences was
+    reversed) and writes a new alignment to the same filename.
+    """
+    with open(alignment) as alignment_handle:
+        alignment_obj = AlignIO.read(alignment_handle, 'fasta')
+        for seq in alignment_obj:
+            if seq.name.startswith('_R_'):
+                seq.name = seq.name.lstrip('_R_')
+                seq.id = seq.id.lstrip('_R_')
+                print(seq)
+        with open(alignment, 'w') as new_alignment_handle:
+            AlignIO.write(alignment_obj, new_alignment_handle, 'fasta')
+
+
 def mafft_align(fasta_file, algorithm, output_folder, counter, lock, num_files_to_process, threads=2,
                 no_supercontigs=False):
     """
@@ -284,6 +300,7 @@ def mafft_align(fasta_file, algorithm, output_folder, counter, lock, num_files_t
         stdout, stderr = mafft_cline()
         with open(expected_alignment_file, 'w') as alignment_file:
             alignment_file.write(stdout)
+        remove_r_prefix(expected_alignment_file)
 
         if not no_supercontigs:
             trimmed_alignment = re.sub('.aln.fasta', '.aln.trimmed.fasta', expected_alignment_file)
@@ -341,6 +358,7 @@ def clustalo_align(fasta_file, output_folder, counter, lock, num_files_to_proces
         clustalomega_cline = ClustalOmegaCommandline(infile=fasta_file, outfile=expected_alignment_file,
                                                      verbose=True, auto=True, threads=threads)
         clustalomega_cline()
+        remove_r_prefix(expected_alignment_file)
         trimmed_alignment = re.sub('.aln.fasta', '.aln.trimmed.fasta', expected_alignment_file)
         run_trim = subprocess.run(['trimal', '-in', expected_alignment_file, '-out', trimmed_alignment, '-gapthreshold',
                                    '0.12', '-terminalonly', '-gw', '1'], check=True)
