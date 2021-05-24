@@ -274,7 +274,6 @@ def remove_r_prefix(alignment):
             if seq.name.startswith('_R_'):
                 seq.name = seq.name.lstrip('_R_')
                 seq.id = seq.id.lstrip('_R_')
-                print(seq)
         with open(alignment, 'w') as new_alignment_handle:
             AlignIO.write(alignment_obj, new_alignment_handle, 'fasta')
 
