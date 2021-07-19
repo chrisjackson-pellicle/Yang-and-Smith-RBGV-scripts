@@ -160,6 +160,7 @@ if __name__ == "__main__":
                 # print(f'Tree post-trimming is: {newick3.tostring(tree)};\n')
                 if tree != None and len(tree.leaves()) >= MIN_TAXA:
                     # print(f'length: {len(tree.leaves())}\n')
-                    with open(outDIR + get_clusterID(i) + "_MIortho" + str(count) + ".tre", "w") as outfile:
+                    # with open(outDIR + get_clusterID(i) + "_MIortho" + str(count) + ".tre", "w") as outfile:
+                    with open(outDIR + get_clusterID(i) + ".MIortho" + str(count) + ".tre", "w") as outfile:  # CJJ
                         outfile.write(newick3.tostring(tree) + ";\n")
                     count += 1

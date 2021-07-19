@@ -396,7 +396,9 @@ def add_outgroup_seqs(original_paralog_gene_fasta_directory, folder_of_qc_paralo
     # Read in QC-d paralog files, add outgroup seqs, and write new fasta files ready for alignment:
     for fasta in glob.glob(f'{folder_of_qc_paralog_files}/*.selected.fa'):
         gene_id = re.sub('_[1-9]$', '', str(os.path.basename(fasta).split('.')[0]))
-        # print(f'gene_id: {gene_id}')
+        gene_id_with_subtree_number = os.path.basename(fasta).split('.')[0]  # CJJ TEST
+        # print(f'gene_id_with_subtree_number: {gene_id_with_subtree_number}')
+
         seqs = list(SeqIO.parse(fasta, 'fasta'))
         seq_names = [seq.name for seq in seqs]
         external_outgroup_seqs = external_outgroup_dict[gene_id]
@@ -411,8 +413,10 @@ def add_outgroup_seqs(original_paralog_gene_fasta_directory, folder_of_qc_paralo
         seqs.extend(external_outgroup_seqs)  # CJJ add external outgroup seqs
 
         # Write new files with outgroup sequences added (in the same directory as QC-d paralog files): #TODO: change
-        #  this or it breaks Nextflow resume!!!
-        with open(f'{output_folder}/{gene_id}.outgroup_added.fasta', 'w') as outgroup_added:
+        #  CJJ this or it breaks Nextflow resume!!! CJJ is this done 19July2021?
+        # with open(f'{output_folder}/{gene_id}.outgroup_added.fasta', 'w') as outgroup_added:
+        #     SeqIO.write(seqs, outgroup_added, 'fasta')
+        with open(f'{output_folder}/{gene_id_with_subtree_number}.outgroup_added.fasta', 'w') as outgroup_added:
             SeqIO.write(seqs, outgroup_added, 'fasta')
 
     # Write the IN and OUT taxon text file required by some paralogy resolution methods (MO, RT):
@@ -483,6 +487,7 @@ def main():
                                     pool_threads=results.threads_pool,
                                     mafft_threads=results.threads_mafft,
                                     no_supercontigs=results.no_supercontigs)
+
     elif results.no_supercontigs:  # re-align with Clustal Omega.
         mafft_align_multiprocessing(results.gene_fasta_directory,
                                     folder_01a,
@@ -490,6 +495,7 @@ def main():
                                     pool_threads=results.threads_pool,
                                     mafft_threads=results.threads_mafft,
                                     no_supercontigs=results.no_supercontigs)
+
         clustalo_align_multiprocessing(folder_01a,
                                        folder_01b,
                                        pool_threads=results.threads_pool,
