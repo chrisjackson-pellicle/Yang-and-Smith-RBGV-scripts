@@ -487,8 +487,6 @@ def main():
                                                                                        results.external_outgroups_file,
                                                                                        folder_00)
 
-    print(paralogs_folder_sanitised, external_outgroups_file_sanitised)
-
     # Check coverage of outgroup sequences:
     check_outgroup_coverage(paralogs_folder_sanitised, results.internal_outgroups, external_outgroups_file_sanitised,
                             list_of_external_outgroups=results.external_outgroups)
