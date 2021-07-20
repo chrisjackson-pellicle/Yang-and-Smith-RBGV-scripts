@@ -257,7 +257,7 @@ if __name__ == "__main__":
         # If the homolog has no taxon duplication, no cutting is needed
         if num_tips == num_taxa:
             if OUTPUT_1to1_ORTHOLOGS:
-                os.system("cp " + inDIR + i + " " + outID + "_1to1ortho.tre")
+                os.system("cp " + inDIR + i + " " + outID + ".1to1ortho.tre")
         else:
             # now need to deal with taxon duplications
             # check to make sure that the ingroup and outgroup names were set correctly

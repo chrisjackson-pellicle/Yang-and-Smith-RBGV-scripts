@@ -91,7 +91,6 @@ def subsample_alignments(tree_folder, tree_suffix, alignment_folder, output_fold
 	Takes a pruned/QC'd tree file, finds the original matching alignment, and sub-samples that alignment to recover
 	only sequences corresponding to tree termini.
 	"""
-	print(from_cut_internal_branches)
 	createfolder(output_folder)
 
 	for tree in glob.glob(f'{tree_folder}/*{tree_suffix}'):
@@ -103,15 +102,15 @@ def subsample_alignments(tree_folder, tree_suffix, alignment_folder, output_fold
 		if from_cut_internal_branches:
 			alignment_prefix = '_'.join(tree_basename.split('_')[0:-1])
 			output_alignment_prefix = tree_basename.split('.')[0]
-			print(alignment_prefix)
+			print(f'alignment_prefix is: {alignment_prefix}')
 			matching_alignment = f'{alignment_folder}/{alignment_prefix}.paralogs.aln.hmm.trimmed.fasta'
 			print(matching_alignment)
 		else:
 			alignment_prefix = tree_basename.split('.')[0]
 			output_alignment_prefix = alignment_prefix
-			print(alignment_prefix)
+			print(f'alignment_prefix is: {alignment_prefix}')
 			matching_alignment = f'{alignment_folder}/{alignment_prefix}.outgroup_added.aln.trimmed.fasta'
-			print(matching_alignment)
+			print(f'matching_alignment is: {matching_alignment}')
 
 		# Read in original alignments and select seqs matching tree termini:
 		alignment = AlignIO.read(matching_alignment, "fasta")
