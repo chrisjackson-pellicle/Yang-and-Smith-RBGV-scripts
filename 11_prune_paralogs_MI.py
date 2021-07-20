@@ -111,7 +111,7 @@ if __name__ == "__main__":
         if get_front_score(curroot) >= MIN_TAXA:  # No need to prune  # CJJ: i.e. no paralogs are more than min taxa
             print("No pruning needed")
             if OUTPUT_1to1_ORTHOLOGS:
-                os.system("cp " + inDIR + i + " " + outDIR + get_clusterID(i) + "_1to1ortho.tre")
+                os.system("cp " + inDIR + i + " " + outDIR + get_clusterID(i) + ".1to1ortho.tre")
         else:  # scoring the tree
             going = True
             pp_trees = []
