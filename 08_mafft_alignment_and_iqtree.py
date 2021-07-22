@@ -279,7 +279,7 @@ def clustalo_align_multiprocessing(fasta_to_align_folder, alignments_output_fold
     logger.info(f'\n{len(alignment_list)} alignments generated from {len(future_results)} fasta files...\n')
 
 
-def iqtree(alignment_file, output_folder, iqtree_threads, counter, lock, num_files_to_process):
+def iqtree(alignment_file, output_folder, iqtree_threads, counter, lock, num_files_to_process, bootstraps=False):
     """
     Generate trees from alignments using iqtree
     """
@@ -295,14 +295,17 @@ def iqtree(alignment_file, output_folder, iqtree_threads, counter, lock, num_fil
         return os.path.basename(expected_output_file)
     except AssertionError:
         try:
-            # check_iqtree = subprocess.run(['/Users/chrisjackson/miniconda3/bin/iqtree', '-redo', '-pre', f'{output_folder}/{alignment_file_basename}',
-                                          # '-s', alignment_file, '-m', 'GTR+G', '-bb', '1000', '-bnni', '-nt',
-                            # str(iqtree_threads), '-quiet'], check=True)
-            check_iqtree = subprocess.run(['iqtree', '-redo', '-pre',
-                                           f'{output_folder}/{alignment_file_basename}',
-                                           '-s', alignment_file, '-m', 'GTR+G', '-bb', '1000', '-bnni', '-nt',
-                                           str(iqtree_threads), '-quiet'], check=True)
-            # print(check_iqtree)
+            if bootstraps:
+                check_iqtree = subprocess.run(['iqtree', '-redo', '-pre',
+                                               f'{output_folder}/{alignment_file_basename}',
+                                               '-s', alignment_file, '-m', 'GTR+G', '-bb', '1000', '-bnni', '-nt',
+                                               str(iqtree_threads), '-quiet'], check=True)
+            else:
+                check_iqtree = subprocess.run(['iqtree', '-redo', '-pre',
+                                               f'{output_folder}/{alignment_file_basename}',
+                                               '-s', alignment_file, '-m', 'GTR+G', '-nt',
+                                               str(iqtree_threads), '-quiet'], check=True)
+                # print(check_iqtree)
         except:
             logger.info(f'No tree produced for {alignment_file}- fewer than 3 sequences in alignment?')
         with lock:
@@ -312,7 +315,7 @@ def iqtree(alignment_file, output_folder, iqtree_threads, counter, lock, num_fil
         print(f'\rFinished generating output {os.path.basename(expected_output_file)}, {counter.value}/{num_files_to_process}', end='')
 
 
-def iqtree_multiprocessing(alignments_folder, tree_output_folder, pool_threads=1, iqtree_threads=2):
+def iqtree_multiprocessing(alignments_folder, tree_output_folder, pool_threads=1, iqtree_threads=2, bootstraps=False):
     """
     Generate iqtree trees using multiprocessing.
     """
@@ -326,7 +329,7 @@ def iqtree_multiprocessing(alignments_folder, tree_output_folder, pool_threads=1
         lock = manager.Lock()
         counter = manager.Value('i', 0)
         future_results = [pool.submit(iqtree, alignment, tree_output_folder, iqtree_threads, counter, lock,
-                                      num_files_to_process=len(alignments))
+                                      num_files_to_process=len(alignments), bootstraps=bootstraps)
                           for alignment in alignments]
         for future in future_results:
             future.add_done_callback(done_callback)
@@ -454,6 +457,8 @@ def parse_arguments():
                              'from the user-provided external_outgroups_file', required=False)
     parser.add_argument('-internal_outgroup', action='append', type=str, dest='internal_outgroups',
                         help='<Required> Set flag', required=False, default=None)
+    parser.add_argument('-generate_bootstraps', action='store_true', default=False,
+                        help='Create bootstraps for trees using UFBoot')
 
     results = parser.parse_args()
     return results
@@ -504,7 +509,8 @@ def main():
     iqtree_multiprocessing(folder_01b,
                            folder_02,
                            pool_threads=results.threads_pool,
-                           iqtree_threads=results.threads_mafft)
+                           iqtree_threads=results.threads_mafft,
+                           bootstraps=results.generate_bootstraps)
 
 
 ########################################################################################################################
