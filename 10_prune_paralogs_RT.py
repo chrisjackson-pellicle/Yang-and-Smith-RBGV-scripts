@@ -51,15 +51,20 @@ def RT(homoDIR, tree_file_eneding, outDIR, min_ingroup_taxa, taxon_code_file_fil
         # check taxonIDs
         ingroup_names = []
         outgroup_names = []
+        unrecognised_names = []
         for name in all_names:
             if name in INGROUPS:
                 ingroup_names.append(name)
             elif name in OUTGROUPS:
                 outgroup_names.append(name)
             else:
-                print(name, "not in ingroups or outgroups")
-                # sys.exit()
-                continue  # CJJ should just skip these trees, not stop completely
+                unrecognised_names.append(name)
+                with open('prune_RT_trees_skipped_incorrect_names.txt', 'a+') as mafft_reversed_log:
+                    mafft_reversed_log.write(f'Check outgroup sequence for tree {treefile}, sequence {name}\n')
+        if len(unrecognised_names) != 0:
+            print(f'unrecognised_names: {unrecognised_names}')
+            continue  # CJJ should just skip these trees, not stop completely
+
         if len(set(ingroup_names)) < min_ingroup_taxa:
             print("not enough ingroup taxa in tree")
             continue

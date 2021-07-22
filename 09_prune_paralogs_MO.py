@@ -261,10 +261,17 @@ if __name__ == "__main__":
         else:
             # now need to deal with taxon duplications
             # check to make sure that the ingroup and outgroup names were set correctly
+            unrecognised_names = []
             for name in names:
                 if name not in INGROUPS and name not in OUTGROUPS:
                     print("check name", name)
-                    sys.exit()
+                    unrecognised_names.append(name)
+                    with open('prune_MO_trees_skipped_incorrect_names.txt', 'a+') as mafft_reversed_log:
+                        mafft_reversed_log.write(f'Check outgroup sequence for tree {i}, sequence {name}\n')
+            if len(unrecognised_names) != 0:
+                print(f'unrecognised_names: {unrecognised_names}')
+                continue  # CJJ should just skip these trees, not stop completely
+
             outgroup_names = get_front_outgroup_names(curroot)
             print(f'outgroup_names: {outgroup_names}')
 
