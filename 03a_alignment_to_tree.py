@@ -309,6 +309,7 @@ def main():
     print(args)
 
     if args.use_fasttree:
+        print(f'Running using FastTree!')
         fasttree_multiprocessing(args.alignment_directory,
                                  pool_threads=args.threads_pool,
                                  bootstraps=args.generate_bootstraps)  # Uses OpenMP with max threads default
