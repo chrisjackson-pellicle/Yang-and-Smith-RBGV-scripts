@@ -131,11 +131,15 @@ def done_callback(future_returned):
     # return result
 
 
-def run_hmm_cleaner(input_folder, output_folder):
+def run_hmm_cleaner(input_folder):
     """
     Runs HmmCleaner.pl on each alignments within a provided folder.
     """
+
+    input_folder_basename = os.path.basename(input_folder)
+    output_folder = f'{input_folder_basename}_hmmcleaned'
     createfolder(output_folder)
+
     for alignment in glob.glob(f'{input_folder}/*.aln.trimmed.fasta'):
         command = f'/usr/bin/perl /usr/local/bin/HmmCleaner.pl {alignment}'
 
@@ -200,7 +204,7 @@ def mafft_align(fasta_file, algorithm, output_folder, counter, lock, num_files_t
     Uses mafft to align a fasta file of sequences, using the algorithm and number of threads provided. Trims
     alignment with Trimal if no_supercontigs=True. Returns filename of the alignment produced.
     """
-    createfolder(output_folder)
+
     fasta_file_basename = os.path.basename(fasta_file)
     expected_alignment_file = f'{output_folder}/{re.sub(".fasta", ".aln.fasta", fasta_file_basename)}'
 
@@ -240,12 +244,17 @@ def mafft_align(fasta_file, algorithm, output_folder, counter, lock, num_files_t
                      f'/{num_files_to_process}', end='')
 
 
-def mafft_align_multiprocessing(fasta_to_align_folder, alignments_output_folder, algorithm='linsi', pool_threads=1,
-                                mafft_threads=2, no_supercontigs=False, use_muscle=False, mafft_algorithm_auto=False):
+def mafft_align_multiprocessing(fasta_to_align_folder, algorithm='linsi', pool_threads=1,
+                                mafft_threads=2, no_supercontigs=False, use_muscle=False):
     """
     Generate alignments via function <align_targets> using multiprocessing.
     """
-    createfolder(alignments_output_folder)
+
+    input_folder_basename = os.path.basename(fasta_to_align_folder)
+    output_folder = f'{input_folder_basename}_alignments'
+    # print(f'output_folder from mafft_align_multiprocessing: {output_folder}')
+    createfolder(output_folder)
+
     logger.debug('Generating alignments for fasta files using mafft...\n')
     target_genes = [file for file in sorted(glob.glob(f'{fasta_to_align_folder}/*.fasta'))]
 
@@ -256,7 +265,7 @@ def mafft_align_multiprocessing(fasta_to_align_folder, alignments_output_folder,
         future_results = [pool.submit(mafft_align,
                                       fasta_file,
                                       algorithm,
-                                      alignments_output_folder,
+                                      output_folder,
                                       counter, lock,
                                       num_files_to_process=len(target_genes),
                                       threads=mafft_threads,
@@ -267,9 +276,10 @@ def mafft_align_multiprocessing(fasta_to_align_folder, alignments_output_folder,
         for future in future_results:
             future.add_done_callback(done_callback)
         wait(future_results, return_when="ALL_COMPLETED")
-    alignment_list = [alignment for alignment in glob.glob(f'{alignments_output_folder}/*.aln.fasta') if
+    alignment_list = [alignment for alignment in glob.glob(f'{output_folder}/*.aln.fasta') if
                       file_exists_and_not_empty(alignment)]
-    logger.debug(f'\n{len(alignment_list)} alignments generated from {len(future_results)} fasta files...\n')
+    logger.info(f'\n{len(alignment_list)} alignments generated from {len(future_results)} fasta files...\n')
+    return output_folder
 
 
 def clustalo_align(fasta_file, output_folder, counter, lock, num_files_to_process, threads=2):
@@ -330,13 +340,6 @@ def parse_arguments():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('gene_fasta_directory', type=str, help='directory containing fasta files (with '
                                                                'sanitised gene names) including paralogs')
-    parser.add_argument('-external_outgroups_file', type=str,
-                        help='file in fasta format with additional outgroup sequences to add to each gene')
-    parser.add_argument('-external_outgroup', action='append', type=str, dest='external_outgroups',
-                        help='<Required> Set flag. If one or more taxon names are provided, only use these sequences '
-                             'from the user-provided external_outgroups_file', required=False)
-    parser.add_argument('-internal_outgroup', action='append', type=str, dest='internal_outgroups',
-                        help='<Required> Set flag', required=False, default=None)
     parser.add_argument('-pool', type=int, help='Number of threads to use for the multiprocessing pool', default=1)
     parser.add_argument('-threads', type=int, help='Number of threads to use for the multiprocessing pool function',
                         default=1)
@@ -366,26 +369,23 @@ def main():
 
     if not args.no_supercontigs:  # i.e. if it's a standard run with supercontigs produced.
         logger.debug(f'Running without no_supercontigs option - aligning with mafft or muscle only')
-        mafft_align_multiprocessing(args.gene_fasta_directory,
-                                    folder_01b,
-                                    algorithm=args.mafft_algorithm,
-                                    pool_threads=args.pool,
-                                    mafft_threads=args.threads,
-                                    no_supercontigs=False,
-                                    use_muscle=args.use_muscle)
+        alignments_output_folder = mafft_align_multiprocessing(args.gene_fasta_directory,
+                                                               algorithm=args.mafft_algorithm,
+                                                               pool_threads=args.pool,
+                                                               mafft_threads=args.threads,
+                                                               no_supercontigs=False,
+                                                               use_muscle=args.use_muscle)
 
-        run_hmm_cleaner(folder_01b,
-                        folder_02)
+        run_hmm_cleaner(alignments_output_folder)
 
     elif args.no_supercontigs:  # Re-align with Clustal Omega.
         logger.debug(f'Running with no_supercontigs option - realigning with clustal omega')
-        mafft_align_multiprocessing(args.gene_fasta_directory,
-                                    folder_01a,
-                                    algorithm=args.mafft_algorithm,
-                                    pool_threads=args.pool,
-                                    mafft_threads=args.threads,
-                                    no_supercontigs=True,
-                                    use_muscle=args.use_muscle)
+        alignments_output_folder = mafft_align_multiprocessing(args.gene_fasta_directory,
+                                                               folder_01a,
+                                                               pool_threads=args.pool,
+                                                               mafft_threads=args.threads,
+                                                               no_supercontigs=True,
+                                                               use_muscle=args.use_muscle)
 
         clustalo_align_multiprocessing(folder_01a,
                                        folder_01b,
