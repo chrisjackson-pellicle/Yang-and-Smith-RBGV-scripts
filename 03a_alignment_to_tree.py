@@ -182,15 +182,16 @@ def iqtree(alignment_file, output_folder, iqtree_threads, counter, lock, num_fil
         print(f'\rFinished generating output {os.path.basename(expected_output_file)}, {counter.value}/{num_files_to_process}', end='')
 
 
-def iqtree_multiprocessing(alignments_folder, tree_output_folder, pool_threads=1, iqtree_threads=2, bootstraps=False):
+def iqtree_multiprocessing(alignments_folder, pool_threads=1, iqtree_threads=2, bootstraps=False):
     """
     Generate iqtree trees using multiprocessing.
     """
 
+    input_folder_basename = os.path.basename(alignments_folder)
+    output_folder = f'{input_folder_basename}_tree_files'
+    createfolder(output_folder)
 
-
-    createfolder(tree_output_folder)
-    logger.info('Generating trees from alignments...\n')
+    logger.info('Generating IQTREE trees from alignments...\n')
     alignments = [file for file in sorted(glob.glob(f'{alignments_folder}/*trimmed.fasta'))]
     alignments.extend([file for file in sorted(glob.glob(f'{alignments_folder}/*trimmed_hmm.fasta'))])
     # print(alignments)
@@ -199,14 +200,73 @@ def iqtree_multiprocessing(alignments_folder, tree_output_folder, pool_threads=1
         manager = Manager()
         lock = manager.Lock()
         counter = manager.Value('i', 0)
-        future_results = [pool.submit(iqtree, alignment, tree_output_folder, iqtree_threads, counter, lock,
+        future_results = [pool.submit(iqtree, alignment, output_folder, iqtree_threads, counter, lock,
                                       num_files_to_process=len(alignments), bootstraps=bootstraps)
                           for alignment in alignments]
         for future in future_results:
             future.add_done_callback(done_callback)
         wait(future_results, return_when="ALL_COMPLETED")
-    tree_list = [tree for tree in glob.glob(f'{tree_output_folder}/*.treefile') if file_exists_and_not_empty(tree)]
-    logger.info(f'\n{len(tree_list)} alignments generated from {len(future_results)} fasta files...\n')
+    tree_list = [tree for tree in glob.glob(f'{output_folder}/*.treefile') if file_exists_and_not_empty(tree)]
+    logger.info(f'\n{len(tree_list)} trees generated from {len(future_results)} fasta files...\n')
+
+
+def fasttree_multiprocessing(alignments_folder, pool_threads=1, bootstraps=False):
+    """
+    Generate FastTree trees using multiprocessing.
+    """
+
+    input_folder_basename = os.path.basename(alignments_folder)
+    output_folder = f'{input_folder_basename}_tree_files'
+    createfolder(output_folder)
+
+    logger.info('Generating FastTree trees from alignments...\n')
+    alignments = [file for file in sorted(glob.glob(f'{alignments_folder}/*trimmed.fasta'))]
+    alignments.extend([file for file in sorted(glob.glob(f'{alignments_folder}/*trimmed_hmm.fasta'))])
+    # print(alignments)
+
+    with ProcessPoolExecutor(max_workers=pool_threads) as pool:
+        manager = Manager()
+        lock = manager.Lock()
+        counter = manager.Value('i', 0)
+        future_results = [pool.submit(fasttree, alignment, output_folder, counter, lock,
+                                      num_files_to_process=len(alignments), bootstraps=bootstraps)
+                          for alignment in alignments]
+        for future in future_results:
+            future.add_done_callback(done_callback)
+        wait(future_results, return_when="ALL_COMPLETED")
+    tree_list = [tree for tree in glob.glob(f'{output_folder}/*.treefile') if file_exists_and_not_empty(tree)]
+    logger.info(f'\n{len(tree_list)} trees generated from {len(future_results)} fasta files...\n')
+
+
+def fasttree(alignment_file, output_folder, counter, lock, num_files_to_process, bootstraps=False):
+    """
+    Generate trees from alignments using FastTree
+    """
+    alignment_file_basename = os.path.basename(alignment_file)
+    expected_output_file = f'{output_folder}/{alignment_file_basename}.treefile'
+
+    try:
+        assert file_exists_and_not_empty(expected_output_file)
+        logger.debug(f'Output exists for {expected_output_file}, skipping...')
+        with lock:
+            counter.value += 1
+        return os.path.basename(expected_output_file)
+    except AssertionError:
+        try:
+            if bootstraps:
+                subprocess.run(['FastTreeMP', '-quote', '-gtr', '-nt', '<', alignment_file, '>',
+                                expected_output_file], check=True)
+            else:
+                subprocess.run(['FastTreeMP', '-quote', '-gtr', '-nt', '<', alignment_file, '>',
+                                expected_output_file], check=True)
+        except:
+            logger.info(f'\nNo tree produced for {alignment_file}- fewer than 3 sequences in alignment?\n')
+        with lock:
+            counter.value += 1
+        return os.path.basename(expected_output_file)
+    finally:
+        print(f'\rFinished generating output {os.path.basename(expected_output_file)}, {counter.value}'
+              f'/{num_files_to_process}', end='')
 
 
 def parse_arguments():
@@ -218,6 +278,8 @@ def parse_arguments():
                         required=True)
     parser.add_argument('-generate_bootstraps', action='store_true', default=False,
                         help='Create bootstraps for trees using UFBoot')
+    parser.add_argument('-use_fasttree', action='store_true', default=False,
+                        help='Use FastTree instead of IQTREE')
 
     results = parser.parse_args()
     return results
@@ -229,15 +291,17 @@ def parse_arguments():
 
 def main():
     args = parse_arguments()
-
-    folder_01 = f'{cwd}/03_tree_files'
     print(args)
 
-    iqtree_multiprocessing(args.alignment_directory,
-                           folder_01,
-                           pool_threads=args.threads_pool,
-                           iqtree_threads=args.threads_iqtree,
-                           bootstraps=args.generate_bootstraps)
+    if args.use_fasttree:
+        fasttree_multiprocessing(args.alignment_directory,
+                                 pool_threads=args.threads_pool,
+                                 bootstraps=args.generate_bootstraps)  # Uses OpenMP with max threads default
+    else:
+        iqtree_multiprocessing(args.alignment_directory,
+                               pool_threads=args.threads_pool,
+                               iqtree_threads=args.threads_iqtree,
+                               bootstraps=args.generate_bootstraps)
 
 
 ########################################################################################################################
