@@ -6,11 +6,8 @@
 - Checks gene names in paralog files and the external outgroup file (if provided) for dots, and converts them to
   underscores.
 - Checks if there an outgroup (internal or external) for each gene paralog file.
-- Aligns the paralog fasta file using mafft, and if the option -no_supercontigs is provided,
-  realigns using Clustal Omega (which can do a better job when alignment contains contigs from different regions of
-  the full-length reference e.g. split between 5' and 3' halves).
-- Trims alignments with Trimal.
-- Runs HmmCleaner.pl on the alignments.
+- Takes a folder of fasta files, and splits them in to batch folders according to the number provided by parameter
+  batch_size.
 """
 
 import logging
@@ -22,15 +19,9 @@ import gzip
 import re
 import fnmatch
 import glob
-import subprocess
 import shutil
-import copy
 from collections import defaultdict
-from Bio import SeqIO, AlignIO
-from Bio.Align.Applications import MafftCommandline, ClustalOmegaCommandline, MuscleCommandline
-from concurrent.futures.process import ProcessPoolExecutor
-from multiprocessing import Manager
-from concurrent.futures import wait
+from Bio import SeqIO
 
 
 if sys.version_info[0] < 3:
@@ -112,205 +103,6 @@ def gunzip(file):
             with gzip.open(file, 'rt') as infile:
                 outfile.write(infile.read())
         os.remove(file)
-
-
-def done_callback(future_returned):
-    """
-    Callback function for ProcessPoolExecutor futures; gets called when a future is cancelled or 'done'.
-    """
-    if future_returned.cancelled():
-        logger.info(f'{future_returned}: cancelled')
-        return
-    elif future_returned.done():
-        error = future_returned.exception()
-        if error:
-            logger.info(f'{future_returned}: error returned: {error}')
-        else:
-            result = future_returned.result()
-            return result
-    # return result
-
-
-def run_hmm_cleaner(input_folder, output_folder):
-    """
-    Runs HmmCleaner.pl on each alignments within a provided folder.
-    """
-    createfolder(output_folder)
-    for alignment in glob.glob(f'{input_folder}/*.aln.trimmed.fasta'):
-        command = f'/usr/bin/perl /usr/local/bin/HmmCleaner.pl {alignment}'
-
-        if host == 'RBGs-MacBook-Air.local':
-            command = f'/Users/chrisjackson/perl5/perlbrew/perls/perl-5.26.2/bin/perl ' \
-                      f'/Users/chrisjackson/perl5/perlbrew/perls/perl-5.26.2/bin/HmmCleaner.pl {alignment}'
-        try:
-            run = subprocess.run(command, shell=True, check=True, capture_output=True)
-
-            # Filter out empty sequences comprised only of dashes
-            try:
-                logger.debug(f'trying command {command}')
-                seqs_to_retain = []
-                hmm_file = re.sub('aln.trimmed.fasta', 'aln.trimmed_hmm.fasta', str(alignment))
-                hmm_file_output = re.sub('aln.trimmed.fasta', 'aln.hmm.trimmed.fasta', str(alignment))
-                with open(hmm_file, 'r') as hmm_fasta:
-                    seqs = SeqIO.parse(hmm_fasta, 'fasta')
-                    for seq in seqs:
-                        characters = set(character for character in seq.seq)
-                        if len(characters) == 1 and '-' in characters:
-                            pass
-                        else:
-                            seqs_to_retain.append(seq)
-                with open(hmm_file_output, 'w') as filtered_hmm_fasta:
-                    SeqIO.write(seqs_to_retain, filtered_hmm_fasta, 'fasta')
-            except:
-                pass
-        except subprocess.CalledProcessError:
-            hmm_file_output = re.sub('aln.trimmed.fasta', 'aln.hmm.trimmed.fasta', str(alignment))
-            logger.info(f"Couldn't run HmmCleaner for alignment {alignment} using command {command}")
-            logger.info(f'Copying alignment {alignment} to {hmm_file_output} anyway...')
-            shutil.copy(alignment, hmm_file_output)
-
-    for file in glob.glob(f"{input_folder}/*aln.hmm.trimmed*"):
-        try:
-            shutil.move(file, output_folder)
-        except shutil.Error:
-            # raise
-            pass
-
-
-def remove_r_prefix(alignment):
-    """
-    Takes a fasta alignment, removes any '_R_' prefix in fasta headers (inserted by mafft if a sequences was
-    reversed) and writes a new alignment to the same filename.
-    """
-    with open(alignment) as alignment_handle:
-        alignment_obj = AlignIO.read(alignment_handle, 'fasta')
-        for seq in alignment_obj:
-            if seq.name.startswith('_R_'):
-                seq.name = seq.name.lstrip('_R_')
-                seq.id = seq.id.lstrip('_R_')
-        with open(alignment, 'w') as new_alignment_handle:
-            AlignIO.write(alignment_obj, new_alignment_handle, 'fasta')
-
-
-def mafft_align(fasta_file, algorithm, output_folder, counter, lock, num_files_to_process, threads=2,
-                no_supercontigs=False, use_muscle=False):
-    """
-    Uses mafft to align a fasta file of sequences, using the algorithm and number of threads provided. Trims
-    alignment with Trimal if no_supercontigs=True. Returns filename of the alignment produced.
-    """
-    createfolder(output_folder)
-    fasta_file_basename = os.path.basename(fasta_file)
-    expected_alignment_file = f'{output_folder}/{re.sub(".fasta", ".aln.fasta", fasta_file_basename)}'
-
-    try:
-        assert file_exists_and_not_empty(expected_alignment_file)
-        logger.debug(f'Alignment exists for {fasta_file_basename}, skipping...')
-        with lock:
-            counter.value += 1
-        return os.path.basename(expected_alignment_file)
-    except AssertionError:
-        if use_muscle:
-            # print(fasta_file_basename)
-            logger.info('Alignment will be performed using MUSCLE rather than MAFFT!')
-            muscle_cline = MuscleCommandline(input=fasta_file, out=expected_alignment_file)
-            stdout, stderr = muscle_cline()
-        else:
-            mafft_cline = (MafftCommandline(algorithm, adjustdirection='true', thread=threads, input=fasta_file))
-            stdout, stderr = mafft_cline()
-            with open(expected_alignment_file, 'w') as alignment_file:
-                alignment_file.write(stdout)
-            remove_r_prefix(expected_alignment_file)
-
-        if not no_supercontigs:
-            trimmed_alignment = re.sub('.aln.fasta', '.aln.trimmed.fasta', expected_alignment_file)
-            run_trim = subprocess.run(['trimal', '-in', expected_alignment_file, '-out', trimmed_alignment,
-                                       '-gapthreshold', '0.12', '-terminalonly', '-gw', '1'], check=True)
-        with lock:
-            counter.value += 1
-        logger.debug(f'Aligned file {fasta_file_basename}')
-        return os.path.basename(expected_alignment_file)
-    finally:
-        logger.debug(f'\rFinished generating alignment for file {fasta_file_basename}, {counter.value}'
-                     f'/{num_files_to_process}', end='')
-
-
-def mafft_align_multiprocessing(fasta_to_align_folder, alignments_output_folder, algorithm='linsi', pool_threads=1,
-                                mafft_threads=2, no_supercontigs=False, use_muscle=False):
-    """
-    Generate alignments via function <align_targets> using multiprocessing.
-    """
-    createfolder(alignments_output_folder)
-    logger.debug('Generating alignments for fasta files using mafft...\n')
-    target_genes = [file for file in sorted(glob.glob(f'{fasta_to_align_folder}/*.fasta'))]
-
-    with ProcessPoolExecutor(max_workers=pool_threads) as pool:
-        manager = Manager()
-        lock = manager.Lock()
-        counter = manager.Value('i', 0)
-        future_results = [pool.submit(mafft_align, fasta_file, algorithm, alignments_output_folder, counter, lock,
-                                      num_files_to_process=len(target_genes), threads=mafft_threads,
-                                      no_supercontigs=no_supercontigs, use_muscle=use_muscle)
-                          for fasta_file in target_genes]
-        for future in future_results:
-            future.add_done_callback(done_callback)
-        wait(future_results, return_when="ALL_COMPLETED")
-    alignment_list = [alignment for alignment in glob.glob(f'{alignments_output_folder}/*.aln.fasta') if
-                      file_exists_and_not_empty(alignment)]
-    logger.debug(f'\n{len(alignment_list)} alignments generated from {len(future_results)} fasta files...\n')
-
-
-def clustalo_align(fasta_file, output_folder, counter, lock, num_files_to_process, threads=2):
-    """
-    Uses clustal omega to align a fasta file of sequences, using the algorithm and number of threads provided.
-    Trims alignment with Trimal. Returns filename of the alignment produced.
-    """
-    createfolder(output_folder)
-    fasta_file_basename = os.path.basename(fasta_file)
-    expected_alignment_file = f'{output_folder}/{fasta_file_basename}'
-
-    try:
-        assert file_exists_and_not_empty(expected_alignment_file)
-        logger.debug(f'Alignment exists for {fasta_file_basename}, skipping...')
-    except AssertionError:
-        # clustalomega_cline = ClustalOmegaCommandline(infile=fasta_file, outfile=expected_alignment_file,
-        #                                              verbose=True, auto=True, threads=threads, pileup=True)
-        clustalomega_cline = ClustalOmegaCommandline(infile=fasta_file, outfile=expected_alignment_file,
-                                                     verbose=True, auto=True, threads=threads)
-        clustalomega_cline()
-        remove_r_prefix(expected_alignment_file)
-        trimmed_alignment = re.sub('.aln.fasta', '.aln.trimmed.fasta', expected_alignment_file)
-        run_trim = subprocess.run(['trimal', '-in', expected_alignment_file, '-out', trimmed_alignment, '-gapthreshold',
-                                   '0.12', '-terminalonly', '-gw', '1'], check=True)
-    finally:
-        with lock:
-            counter.value += 1
-            logger.debug(f'\rFinished generating alignment for file {fasta_file_basename}, '
-                  f'{counter.value}/{num_files_to_process}', end='')
-        return os.path.basename(expected_alignment_file)
-
-
-def clustalo_align_multiprocessing(fasta_to_align_folder, alignments_output_folder, pool_threads=1,
-                                   clustalo_threads=2):
-    """ 
-    Generate alignments via function <clustalo_align> using multiprocessing.
-    """
-    createfolder(alignments_output_folder)
-    logger.debug('Generating alignments for fasta files using clustal omega...\n')
-    target_genes = [file for file in sorted(glob.glob(f'{fasta_to_align_folder}/*.fasta'))]
-
-    with ProcessPoolExecutor(max_workers=pool_threads) as pool:
-        manager = Manager()
-        lock = manager.Lock()
-        counter = manager.Value('i', 0)
-        future_results = [pool.submit(clustalo_align, fasta_file, alignments_output_folder, counter, lock,
-                                      num_files_to_process=len(target_genes), threads=clustalo_threads)
-                          for fasta_file in target_genes]
-        for future in future_results:
-            future.add_done_callback(done_callback)
-        wait(future_results, return_when="ALL_COMPLETED")
-    alignment_list = [alignment for alignment in glob.glob(f'{alignments_output_folder}/*.aln.fasta') if
-                      file_exists_and_not_empty(alignment)]
-    logger.debug(f'\n{len(alignment_list)} alignments generated from {len(future_results)} fasta files...\n')
 
 
 def check_outgroup_coverage(folder_of_paralog_files, list_of_internal_outgroups, file_of_external_outgroups,
@@ -455,6 +247,36 @@ def sanitise_gene_names(paralogs_folder, file_of_external_outgroups, sanitised_p
     return sanitised_paralog_output_folder, None
 
 
+def batch_input_files(gene_fasta_directory, output_directory, batch_size=20):
+    """
+    Takes a folder of fasta files, and splits them in to batch folders according to the number provided by
+    parameter batch_size.
+
+    Parameters
+    ----------
+    gene_fasta_directory : path to the folder containing gene/paralog fasta files
+    batch_size : number of gene/paralog fasta files to output in each batch folder
+
+    Returns
+    -------
+
+    """
+    createfolder(output_directory)
+
+    fasta_file_list = glob.glob(f'{gene_fasta_directory}/*.fasta')
+
+    def chunks(lst, n):
+        """Yield successive n-sized chunks from lst."""
+        for i in range(0, len(lst), n):
+            yield lst[i:i + n]
+
+    batches = list(chunks(fasta_file_list, batch_size))
+    batch_num = 1
+    for batch in batches:
+        createfolder(f'{output_directory}/batch_{batch_num}')
+        for fasta_file in batch:
+            shutil.copy(fasta_file, f'{output_directory}/batch_{batch_num}')
+        batch_num += 1
 
 
 def parse_arguments():
@@ -467,14 +289,8 @@ def parse_arguments():
                              'from the user-provided external_outgroups_file', required=False)
     parser.add_argument('-internal_outgroup', action='append', type=str, dest='internal_outgroups',
                         help='<Required> Set flag', required=False, default=None)
-    parser.add_argument('-pool', type=int, help='Number of threads to use for the multiprocessing pool', default=1)
-    parser.add_argument('-threads', type=int, help='Number of threads to use for the multiprocessing pool function',
-                        default=1)
-    parser.add_argument('-skip_hmmcleaner', action='store_true', help='skip the hmmcleaner step')
-    parser.add_argument('-no_supercontigs', action='store_true', default=False,
-                        help='If specified, realign mafft alignments with clustal omega')
-    parser.add_argument('-use_muscle', action='store_true', default=False,
-                        help='If specified, use muscle rather than mafft')
+    parser.add_argument('-batch_size', type=int, default=20,
+                        help='Number of fasta files in each batch, from input paralog fasta files')
 
     results = parser.parse_args()
     return results
@@ -485,36 +301,27 @@ def parse_arguments():
 # Run script:
 
 def main():
-    results = parse_arguments()
+    args = parse_arguments()
     folder_00 = f'{cwd}/00_paralogs_gene_names_sanitised'
-    folder_01a = f'{cwd}/01a_mafft_alignments'
-    folder_01b = f'{cwd}/01_alignments'
-    folder_02 = f'{cwd}/02_alignments_hmmcleaned'
+    folder_01 = f'{cwd}/01_batch_folders'
+
 
     # Check gene names in paralog files and the external outgroup file (if provided) for dots, and convert to
     # underscores:
-    paralogs_folder_sanitised, external_outgroups_file_sanitised = sanitise_gene_names(results.gene_fasta_directory,
-                                                                                       results.external_outgroups_file,
+    paralogs_folder_sanitised, external_outgroups_file_sanitised = sanitise_gene_names(args.gene_fasta_directory,
+                                                                                       args.external_outgroups_file,
                                                                                        folder_00)
 
     # Check coverage of outgroup sequences:
-    check_outgroup_coverage(paralogs_folder_sanitised, results.internal_outgroups, external_outgroups_file_sanitised,
-                            list_of_external_outgroups=results.external_outgroups)
+    check_outgroup_coverage(paralogs_folder_sanitised,
+                            args.internal_outgroups,
+                            external_outgroups_file_sanitised,
+                            list_of_external_outgroups=args.external_outgroups)
 
-    if not results.no_supercontigs:  # i.e. if it's a standard run with supercontigs produced.
-        logger.debug(f'Running without no_supercontigs option - aligning with mafft only')
-        mafft_align_multiprocessing(paralogs_folder_sanitised, folder_01b, algorithm='linsi',
-                                    pool_threads=results.pool,
-                                    mafft_threads=results.threads, no_supercontigs=False, use_muscle=results.use_muscle)
-        run_hmm_cleaner(folder_01b, folder_02)
-    elif results.no_supercontigs:  # Re-align with Clustal Omega.
-        logger.debug(f'Running with no_supercontigs option - realigning with clustal omega')
-        mafft_align_multiprocessing(paralogs_folder_sanitised, folder_01a, algorithm='linsi',
-                                    pool_threads=results.pool,
-                                    mafft_threads=results.threads, no_supercontigs=True, use_muscle=results.use_muscle)
-        clustalo_align_multiprocessing(folder_01a, folder_01b, pool_threads=results.pool,
-                                       clustalo_threads=results.threads)
-        run_hmm_cleaner(folder_01b, folder_02)
+    # Batch files into separate folders:
+    batch_input_files(paralogs_folder_sanitised,
+                      folder_01,
+                      batch_size=args.batch_size)
 
 
 ########################################################################################################################

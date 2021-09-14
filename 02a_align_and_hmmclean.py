@@ -139,6 +139,8 @@ def run_hmm_cleaner(input_folder, output_folder):
     for alignment in glob.glob(f'{input_folder}/*.aln.trimmed.fasta'):
         command = f'/usr/bin/perl /usr/local/bin/HmmCleaner.pl {alignment}'
 
+        # print(f'hostname is: {host}')
+        # if host == '192-168-1-111.tpgi.com.au':
         if host == 'RBGs-MacBook-Air.local':
             command = f'/Users/chrisjackson/perl5/perlbrew/perls/perl-5.26.2/bin/perl ' \
                       f'/Users/chrisjackson/perl5/perlbrew/perls/perl-5.26.2/bin/HmmCleaner.pl {alignment}'
@@ -215,7 +217,11 @@ def mafft_align(fasta_file, algorithm, output_folder, counter, lock, num_files_t
             muscle_cline = MuscleCommandline(input=fasta_file, out=expected_alignment_file)
             stdout, stderr = muscle_cline()
         else:
-            mafft_cline = (MafftCommandline(algorithm, adjustdirection='true', thread=threads, input=fasta_file))
+            if algorithm == 'auto':
+                mafft_cline = (MafftCommandline(auto='true', adjustdirection='true', thread=threads, input=fasta_file))
+            else:
+                mafft_cline = (MafftCommandline(algorithm, adjustdirection='true', thread=threads, input=fasta_file))
+            logger.info(f'Performing MAFFT alignment with command" {mafft_cline}')
             stdout, stderr = mafft_cline()
             with open(expected_alignment_file, 'w') as alignment_file:
                 alignment_file.write(stdout)
@@ -235,7 +241,7 @@ def mafft_align(fasta_file, algorithm, output_folder, counter, lock, num_files_t
 
 
 def mafft_align_multiprocessing(fasta_to_align_folder, alignments_output_folder, algorithm='linsi', pool_threads=1,
-                                mafft_threads=2, no_supercontigs=False, use_muscle=False):
+                                mafft_threads=2, no_supercontigs=False, use_muscle=False, mafft_algorithm_auto=False):
     """
     Generate alignments via function <align_targets> using multiprocessing.
     """
@@ -247,9 +253,16 @@ def mafft_align_multiprocessing(fasta_to_align_folder, alignments_output_folder,
         manager = Manager()
         lock = manager.Lock()
         counter = manager.Value('i', 0)
-        future_results = [pool.submit(mafft_align, fasta_file, algorithm, alignments_output_folder, counter, lock,
-                                      num_files_to_process=len(target_genes), threads=mafft_threads,
-                                      no_supercontigs=no_supercontigs, use_muscle=use_muscle)
+        future_results = [pool.submit(mafft_align,
+                                      fasta_file,
+                                      algorithm,
+                                      alignments_output_folder,
+                                      counter, lock,
+                                      num_files_to_process=len(target_genes),
+                                      threads=mafft_threads,
+                                      no_supercontigs=no_supercontigs,
+                                      use_muscle=use_muscle)
+
                           for fasta_file in target_genes]
         for future in future_results:
             future.add_done_callback(done_callback)
@@ -291,7 +304,7 @@ def clustalo_align(fasta_file, output_folder, counter, lock, num_files_to_proces
 
 def clustalo_align_multiprocessing(fasta_to_align_folder, alignments_output_folder, pool_threads=1,
                                    clustalo_threads=2):
-    """ 
+    """
     Generate alignments via function <clustalo_align> using multiprocessing.
     """
     createfolder(alignments_output_folder)
@@ -313,153 +326,10 @@ def clustalo_align_multiprocessing(fasta_to_align_folder, alignments_output_fold
     logger.debug(f'\n{len(alignment_list)} alignments generated from {len(future_results)} fasta files...\n')
 
 
-def check_outgroup_coverage(folder_of_paralog_files, list_of_internal_outgroups, file_of_external_outgroups,
-                            list_of_external_outgroups=None):
-    """
-    Check the number of genes that have an outgroup sequence in either the list_of_internal_outgroups (i.e.
-    corresponding to samples within the existing paralog fasta file), or within a file of external outgroup sequences
-    (i.e. new taxa to add as outgroups). Writes a report of gene coverage and corresponding outgroup(s).
-    """
-    # print(list_of_internal_outgroups)
-    # print(list_of_external_outgroups)
-
-    # Read in paralog fasta files, and create a dictionary of gene_id:list_of_seq_names:
-    paralog_dict = defaultdict(list)
-    for fasta in glob.glob(f'{folder_of_paralog_files}/*'):
-        gene_id = os.path.basename(fasta).split('.')[0]  # CJJ get prefix e.g. '4471'
-        seqs = SeqIO.parse(fasta, 'fasta')
-        for seq in seqs:
-            paralog_dict[gene_id].append(seq.name)
-
-    # Read in external outgroups file, and create a dictionary of gene_id:list_of_seq_names:
-    if file_of_external_outgroups:  # CJJ dict not created if no outgroups file provided
-        external_outgroup_dict = defaultdict(list)
-        seqs = SeqIO.parse(file_of_external_outgroups, 'fasta')
-        for seq in seqs:
-            gene_id = seq.name.split('-')[-1]  # CJJ get gene id e.g. '4471'
-            external_outgroup_dict[gene_id].append(seq.name)
-
-    # Check whether there is a seq for each taxon in list_of_internal_outgroups for each gene, and create a dictionary
-    internal_outgroup_coverage_dict = defaultdict(list)
-    if list_of_internal_outgroups:
-        for gene, sequence_names in paralog_dict.items():
-            internal_outgroup = 0
-            for taxon in list_of_internal_outgroups:
-                if taxon in sequence_names or f'{taxon}.main' in sequence_names:  # CJJ i.e. if there are paralogs
-                    internal_outgroup += 1
-                    internal_outgroup_coverage_dict[gene].append(taxon)
-                else:
-                    # print(f'No seq for gene {gene} for taxon {taxon}')
-                    pass
-            if internal_outgroup == 0:
-                internal_outgroup_coverage_dict[gene].append('No internal outgroup')
-
-    # Check whether there is a seq for each taxon in list_of_external_outgroups for each gene, and create a dictionary
-    external_outgroup_coverage_dict = defaultdict(list)
-    if file_of_external_outgroups and list_of_external_outgroups:  # CJJ i.e. if filtering the external outgroups for
-        # CJJ specified taxa
-        for gene, sequences in paralog_dict.items():
-            gene_lookup = external_outgroup_dict[gene]
-            if len(gene_lookup) == 0:
-                external_outgroup_coverage_dict[gene].append('No external outgroup')
-            for taxon in list_of_external_outgroups:
-                if taxon in ['-'.join(name.split('-')[:-1]) for name in gene_lookup]:  # CJJ i.e the names without
-                    # CJJ the gene id suffix)
-                    external_outgroup_coverage_dict[gene].append(taxon)
-                else:
-                    # print(f'Taxon {taxon} not found for gene {gene}!')
-                    pass
-
-    if file_of_external_outgroups and not list_of_external_outgroups:  # CJJ i.e. if NOT filtering the external
-        # outgroups for specified taxa
-        for gene, sequences in paralog_dict.items():
-            gene_lookup = external_outgroup_dict[gene]
-            if len(gene_lookup) == 0:
-                external_outgroup_coverage_dict[gene].append('No external outgroup')
-            for seq in gene_lookup:
-                external_outgroup_coverage_dict[gene].append('-'.join(seq.split('-')[:-1]))
-
-    # Iterate over all genes from paralogs dict, and check for internal and/or external outgroups. Write a tsv file
-    # of results:
-    with open(f'outgroup_coverage_report.tsv', 'w') as tsv_report:
-        number_of_paralog_files = len(paralog_dict)
-        num_paralog_files_with_internal_outgroup = 0
-        num_paralog_files_with_external_outgroup = 0
-        num_paralog_files_with_both_internal_and_external_outgroup = 0
-        tsv_report.write(f'Gene_name\tInternal_outgroup_taxa\tExternal_outgroup_taxa\n')
-        for gene, sequences in paralog_dict.items():
-            internal_outgroups = internal_outgroup_coverage_dict[gene]
-            external_outgroups = external_outgroup_coverage_dict[gene]
-            if len(internal_outgroups) != 0 and 'No internal outgroup' not in internal_outgroups:
-                # print("LUCY")
-                num_paralog_files_with_internal_outgroup += 1
-            if len(external_outgroups) != 0 and 'No external outgroup' not in external_outgroups:
-                num_paralog_files_with_external_outgroup += 1
-            if len(internal_outgroups) != 0 and 'No internal outgroup' not in internal_outgroups and len(
-                    external_outgroups) != 0 and 'No external outgroup' not in external_outgroups:
-                num_paralog_files_with_both_internal_and_external_outgroup += 1
-            tsv_report.write(f'{gene}\t{";".join(internal_outgroups)}\t{";".join(external_outgroups)}\n')
-
-        # Print to stdout, to be captured by Nextflow process to e.g. print a warning
-        print(f'*** OUTGROUP COVERAGE STATISTICS ***\n')
-        print(f'Number of paralog files with at least one internal outgroup sequence: '
-              f'{num_paralog_files_with_internal_outgroup} of {number_of_paralog_files}')
-        print(f'Number of paralog files with at least one external outgroup sequence: '
-              f'{num_paralog_files_with_external_outgroup} of {number_of_paralog_files}')
-        print(f'Number of paralog files with at least one internal AND external outgroup sequence: '
-              f'{num_paralog_files_with_both_internal_and_external_outgroup} of {number_of_paralog_files}\n')
-
-
-def sanitise_gene_names(paralogs_folder, file_of_external_outgroups, sanitised_paralog_output_folder):
-    """
-    Checks gene names in paralog files and the external outgroup file (if latter provided) for dots, and converts
-    them to underscores.
-    """
-
-    # Sanitise filenames in input paralogs folder:
-    createfolder(sanitised_paralog_output_folder)
-    for file in glob.glob(f'{paralogs_folder}/*'):
-        basename = os.path.basename(file)
-        if not re.search('.paralogs.fasta', basename):
-            logger.info(f'\nFile "{basename}" appears not to follow the expected naming convention '
-                        f'"geneName.paralogs.fasta". Please check your input files!\n')
-            sys.exit(1)
-        gene_name = basename.split('.paralogs.fasta')[0]
-        gene_name_sanitised = re.sub('[.]', '_', gene_name)
-        paralog_filename_sanitised = f'{gene_name_sanitised}.paralogs.fasta'
-        shutil.copy(file, f'{sanitised_paralog_output_folder}/{paralog_filename_sanitised}')
-
-    # Sanitise gene names in the external outgroup fasta file, if provided:
-    if file_of_external_outgroups:
-        basename = os.path.basename(file_of_external_outgroups)
-        filename, extension = os.path.splitext(basename)
-        sanitised_seqs_to_write = []
-        seqs = SeqIO.parse(file_of_external_outgroups, 'fasta')
-        for seq in seqs:
-            gene_name = seq.id.split('-')[-1]
-            sample_name = seq.id.split('-')[0]
-            gene_name_sanitised = re.sub('[.]', '_', gene_name)
-            seq_name_sanitised = f'{sample_name}-{gene_name_sanitised}'
-
-            # Re-name sequence:
-            seq.id = seq_name_sanitised
-            seq.name = seq_name_sanitised
-            seq.description = seq_name_sanitised
-
-            sanitised_seqs_to_write.append(seq)
-        with open(f'{filename}_sanitised{extension}', 'w') as sanitised_outgroups_files:
-            SeqIO.write(sanitised_seqs_to_write, sanitised_outgroups_files, 'fasta')
-
-        return sanitised_paralog_output_folder, f'{filename}_sanitised{extension}'
-
-    return sanitised_paralog_output_folder, None
-
-
-
-
 def parse_arguments():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('gene_fasta_directory', type=str, help='directory contains fasta files including paralogs')
+    parser.add_argument('gene_fasta_directory', type=str, help='directory containing fasta files (with '
+                                                               'sanitised gene names) including paralogs')
     parser.add_argument('-external_outgroups_file', type=str,
                         help='file in fasta format with additional outgroup sequences to add to each gene')
     parser.add_argument('-external_outgroup', action='append', type=str, dest='external_outgroups',
@@ -475,6 +345,10 @@ def parse_arguments():
                         help='If specified, realign mafft alignments with clustal omega')
     parser.add_argument('-use_muscle', action='store_true', default=False,
                         help='If specified, use muscle rather than mafft')
+    # group_1 = parser.add_mutually_exclusive_group()
+    parser.add_argument('-mafft_algorithm', default='auto', help='Algorithm to use for mafft alignments')
+    # group_1.add_argument('-mafft_algorithm_auto', action='store_true', default=False, help='use --auto for mafft '
+    #                                                                                        'algorithm')
 
     results = parser.parse_args()
     return results
@@ -485,36 +359,41 @@ def parse_arguments():
 # Run script:
 
 def main():
-    results = parse_arguments()
-    folder_00 = f'{cwd}/00_paralogs_gene_names_sanitised'
+    args = parse_arguments()
     folder_01a = f'{cwd}/01a_mafft_alignments'
     folder_01b = f'{cwd}/01_alignments'
     folder_02 = f'{cwd}/02_alignments_hmmcleaned'
 
-    # Check gene names in paralog files and the external outgroup file (if provided) for dots, and convert to
-    # underscores:
-    paralogs_folder_sanitised, external_outgroups_file_sanitised = sanitise_gene_names(results.gene_fasta_directory,
-                                                                                       results.external_outgroups_file,
-                                                                                       folder_00)
+    if not args.no_supercontigs:  # i.e. if it's a standard run with supercontigs produced.
+        logger.debug(f'Running without no_supercontigs option - aligning with mafft or muscle only')
+        mafft_align_multiprocessing(args.gene_fasta_directory,
+                                    folder_01b,
+                                    algorithm=args.mafft_algorithm,
+                                    pool_threads=args.pool,
+                                    mafft_threads=args.threads,
+                                    no_supercontigs=False,
+                                    use_muscle=args.use_muscle)
 
-    # Check coverage of outgroup sequences:
-    check_outgroup_coverage(paralogs_folder_sanitised, results.internal_outgroups, external_outgroups_file_sanitised,
-                            list_of_external_outgroups=results.external_outgroups)
+        run_hmm_cleaner(folder_01b,
+                        folder_02)
 
-    if not results.no_supercontigs:  # i.e. if it's a standard run with supercontigs produced.
-        logger.debug(f'Running without no_supercontigs option - aligning with mafft only')
-        mafft_align_multiprocessing(paralogs_folder_sanitised, folder_01b, algorithm='linsi',
-                                    pool_threads=results.pool,
-                                    mafft_threads=results.threads, no_supercontigs=False, use_muscle=results.use_muscle)
-        run_hmm_cleaner(folder_01b, folder_02)
-    elif results.no_supercontigs:  # Re-align with Clustal Omega.
+    elif args.no_supercontigs:  # Re-align with Clustal Omega.
         logger.debug(f'Running with no_supercontigs option - realigning with clustal omega')
-        mafft_align_multiprocessing(paralogs_folder_sanitised, folder_01a, algorithm='linsi',
-                                    pool_threads=results.pool,
-                                    mafft_threads=results.threads, no_supercontigs=True, use_muscle=results.use_muscle)
-        clustalo_align_multiprocessing(folder_01a, folder_01b, pool_threads=results.pool,
-                                       clustalo_threads=results.threads)
-        run_hmm_cleaner(folder_01b, folder_02)
+        mafft_align_multiprocessing(args.gene_fasta_directory,
+                                    folder_01a,
+                                    algorithm=args.mafft_algorithm,
+                                    pool_threads=args.pool,
+                                    mafft_threads=args.threads,
+                                    no_supercontigs=True,
+                                    use_muscle=args.use_muscle)
+
+        clustalo_align_multiprocessing(folder_01a,
+                                       folder_01b,
+                                       pool_threads=args.pool,
+                                       clustalo_threads=args.threads)
+
+        run_hmm_cleaner(folder_01b,
+                        folder_02)
 
 
 ########################################################################################################################
