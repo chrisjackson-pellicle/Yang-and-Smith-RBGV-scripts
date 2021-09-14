@@ -262,7 +262,7 @@ def fasttree(alignment_file, output_folder, counter, lock, num_files_to_process,
                 logger.debug(f'FastTreeMP stderr is: {result.stderr}')
 
             else:
-                fasttree_command = f'FastTreeMP -quote -gtr -nt < {alignment_file} > {expected_output_file}'
+                fasttree_command = f'FastTreeMP -quote -gtr -nt -nosupport < {alignment_file} > {expected_output_file}'
                 result = subprocess.run(fasttree_command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                         universal_newlines=True)
                 logger.debug(f'FastTreeMP check_returncode() is: {result.check_returncode()}')
