@@ -273,8 +273,8 @@ def fasttree(alignment_file, output_folder, counter, lock, num_files_to_process,
 
         except subprocess.CalledProcessError as exc:
             logger.error(f'FastTreeMP FAILED. Output is: {exc}')
-            logger.error(f'bbmeFastTreeMP stdout is: {exc.stdout}')
-            logger.error(f'bbmeFastTreeMP stderr is: {exc.stderr}')
+            logger.error(f'FastTreeMP stdout is: {exc.stdout}')
+            logger.error(f'FastTreeMP stderr is: {exc.stderr}')
 
         # except:
         #     logger.info(f'\nNo tree produced for {alignment_file}- fewer than 3 sequences in alignment?\n')
