@@ -254,13 +254,28 @@ def fasttree(alignment_file, output_folder, counter, lock, num_files_to_process,
     except AssertionError:
         try:
             if bootstraps:
-                subprocess.run(['FastTreeMP', '-quote', '-gtr', '-nt', '<', alignment_file, '>',
-                                expected_output_file], check=True)
+                fasttree_command = f'FastTreeMP -quote -gtr -nt < {alignment_file} > {expected_output_file}'
+                result = subprocess.run(fasttree_command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                        universal_newlines=True)
+                logger.debug(f'FastTreeMP check_returncode() is: {result.check_returncode()}')
+                logger.debug(f'FastTreeMP stdout is: {result.stdout}')
+                logger.debug(f'FastTreeMP stderr is: {result.stderr}')
+
             else:
-                subprocess.run(['FastTreeMP', '-quote', '-gtr', '-nt', '<', alignment_file, '>',
-                                expected_output_file], check=True)
-        except:
-            logger.info(f'\nNo tree produced for {alignment_file}- fewer than 3 sequences in alignment?\n')
+                fasttree_command = f'FastTreeMP -quote -gtr -nt < {alignment_file} > {expected_output_file}'
+                result = subprocess.run(fasttree_command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                        universal_newlines=True)
+                logger.debug(f'FastTreeMP check_returncode() is: {result.check_returncode()}')
+                logger.debug(f'FastTreeMP stdout is: {result.stdout}')
+                logger.debug(f'FastTreeMP stderr is: {result.stderr}')
+
+        except subprocess.CalledProcessError as exc:
+            logger.error(f'FastTreeMP FAILED. Output is: {exc}')
+            logger.error(f'bbmeFastTreeMP stdout is: {exc.stdout}')
+            logger.error(f'bbmeFastTreeMP stderr is: {exc.stderr}')
+
+        # except:
+        #     logger.info(f'\nNo tree produced for {alignment_file}- fewer than 3 sequences in alignment?\n')
         with lock:
             counter.value += 1
         return os.path.basename(expected_output_file)
