@@ -245,8 +245,6 @@ def fasttree(alignment_file, output_folder, counter, lock, num_files_to_process,
     alignment_file_basename = os.path.basename(alignment_file)
     expected_output_file = f'{output_folder}/{alignment_file_basename}.treefile'
 
-    print('HERE I AM')
-
     try:
         assert file_exists_and_not_empty(expected_output_file)
         logger.debug(f'Output exists for {expected_output_file}, skipping...')
@@ -311,7 +309,6 @@ def main():
     print(args)
 
     if args.use_fasttree:
-        print(f'Running using FastTree!')
         fasttree_multiprocessing(args.alignment_directory,
                                  pool_threads=args.threads_pool,
                                  bootstraps=args.generate_bootstraps)  # Uses OpenMP with max threads default
