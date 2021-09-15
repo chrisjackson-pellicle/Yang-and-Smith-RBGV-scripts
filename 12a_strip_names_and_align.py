@@ -341,6 +341,14 @@ def main():
     output_folder = strip_names_for_concat(results.gene_fasta_directory)
 
     if not results.no_supercontigs:  # i.e. if it's a standard run.
+        mafft_align_multiprocessing(output_folder,
+                                    algorithm=results.mafft_algorithm,
+                                    pool_threads=results.threads_pool,
+                                    mafft_threads=results.threads_mafft,
+                                    no_supercontigs=results.no_supercontigs,
+                                    use_muscle=results.use_muscle)
+
+    elif results.no_supercontigs:  # re-align with Clustal Omega.
         alignments_output_folder = mafft_align_multiprocessing(output_folder,
                                                                algorithm=results.mafft_algorithm,
                                                                pool_threads=results.threads_pool,
@@ -348,17 +356,9 @@ def main():
                                                                no_supercontigs=results.no_supercontigs,
                                                                use_muscle=results.use_muscle)
 
-    elif results.no_supercontigs:  # re-align with Clustal Omega.
-         alignments_output_folder = mafft_align_multiprocessing(output_folder,
-                                                                algorithm=results.mafft_algorithm,
-                                                                pool_threads=results.threads_pool,
-                                                                mafft_threads=results.threads_mafft,
-                                                                no_supercontigs=results.no_supercontigs,
-                                                                use_muscle=results.use_muscle)
-
-        clustal_alignment_output_folder = clustalo_align_multiprocessing(alignments_output_folder,
-                                                                         pool_threads=results.threads_pool,
-                                                                         clustalo_threads=results.threads_mafft)
+        clustalo_align_multiprocessing(alignments_output_folder,
+                                       pool_threads=results.threads_pool,
+                                       clustalo_threads=results.threads_mafft)
 
 
 ########################################################################################################################
