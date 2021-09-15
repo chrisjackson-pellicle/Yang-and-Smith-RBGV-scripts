@@ -172,7 +172,11 @@ def mafft_align(fasta_file, algorithm, output_folder, counter, lock, num_files_t
             muscle_cline = MuscleCommandline(input=fasta_file, out=expected_alignment_file)
             stdout, stderr = muscle_cline()
         else:
-            mafft_cline = (MafftCommandline(algorithm, adjustdirection='true', thread=threads, input=fasta_file))
+            if algorithm == 'auto':
+                mafft_cline = (MafftCommandline(auto='true', thread=threads, input=fasta_file))
+            else:
+                mafft_cline = (MafftCommandline(algorithm, thread=threads, input=fasta_file))
+            logger.info(f'Performing MAFFT alignment with command" {mafft_cline}')
             stdout, stderr = mafft_cline()
             with open(expected_alignment_file, 'w') as alignment_file:
                 alignment_file.write(stdout)
