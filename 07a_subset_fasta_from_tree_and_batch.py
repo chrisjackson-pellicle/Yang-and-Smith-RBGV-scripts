@@ -73,7 +73,7 @@ def subsample_alignments(tree_folder, tree_suffix, alignment_folder, output_fold
         tree_basename = os.path.basename(tree)
 
         # Derive the matching alignment file name depending on input tree file name:
-        if from_cut_internal_branches:
+        if from_cut_internal_branches:  # e.g. 4471_1.subtree
             alignment_prefix = '_'.join(tree_basename.split('_')[0:-1])
             output_alignment_prefix = tree_basename.split('.')[0]
             print(f'alignment_prefix is: {alignment_prefix}')
@@ -81,7 +81,8 @@ def subsample_alignments(tree_folder, tree_suffix, alignment_folder, output_fold
             print(matching_alignment)
         else:
             alignment_prefix = tree_basename.split('.')[0]
-            output_alignment_prefix = alignment_prefix
+            # output_alignment_prefix = alignment_prefix
+            output_alignment_prefix = '.'.join(tree_basename.split('.')[0:-1])
             print(f'alignment_prefix is: {alignment_prefix}')
             matching_alignment = f'{alignment_folder}/{alignment_prefix}.outgroup_added.aln.trimmed.fasta'
             print(f'matching_alignment is: {matching_alignment}')
