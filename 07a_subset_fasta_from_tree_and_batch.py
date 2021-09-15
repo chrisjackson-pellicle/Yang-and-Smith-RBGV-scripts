@@ -122,6 +122,7 @@ def batch_input_files(gene_fasta_directory, output_directory, batch_size=20):
             yield lst[i:i + n]
 
     batches = list(chunks(fasta_file_list, batch_size))
+    logger.info(f'Batches are: {batches}')
     batch_num = 1
     for batch in batches:
         createfolder(f'{output_directory}/batch_{batch_num}')

@@ -207,13 +207,21 @@ def mafft_align(fasta_file, algorithm, output_folder, counter, lock, num_files_t
 
     fasta_file_basename = os.path.basename(fasta_file)
     expected_alignment_file = f'{output_folder}/{re.sub(".fasta", ".aln.fasta", fasta_file_basename)}'
+    expected_alignment_file_trimmed = re.sub('.aln.fasta', '.aln.trimmed.fasta', expected_alignment_file)
 
     try:
-        assert file_exists_and_not_empty(expected_alignment_file)
-        logger.debug(f'Alignment exists for {fasta_file_basename}, skipping...')
-        with lock:
-            counter.value += 1
-        return os.path.basename(expected_alignment_file)
+        if not no_supercontigs:
+            assert file_exists_and_not_empty(expected_alignment_file_trimmed)
+            logger.debug(f'Trimmed alignment exists for {fasta_file_basename}, skipping...')
+            with lock:
+                counter.value += 1
+            return os.path.basename(expected_alignment_file_trimmed)
+        else:
+            assert file_exists_and_not_empty(expected_alignment_file)
+            logger.debug(f'Alignment exists for {fasta_file_basename}, skipping...')
+            with lock:
+                counter.value += 1
+            return os.path.basename(expected_alignment_file)
     except AssertionError:
         if use_muscle:
             # print(fasta_file_basename)
@@ -287,6 +295,7 @@ def clustalo_align(fasta_file, output_folder, counter, lock, num_files_to_proces
     Uses clustal omega to align a fasta file of sequences, using the algorithm and number of threads provided.
     Trims alignment with Trimal. Returns filename of the alignment produced.
     """
+
     createfolder(output_folder)
     fasta_file_basename = os.path.basename(fasta_file)
     expected_alignment_file = f'{output_folder}/{fasta_file_basename}'
@@ -312,12 +321,16 @@ def clustalo_align(fasta_file, output_folder, counter, lock, num_files_to_proces
         return os.path.basename(expected_alignment_file)
 
 
-def clustalo_align_multiprocessing(fasta_to_align_folder, alignments_output_folder, pool_threads=1,
-                                   clustalo_threads=2):
+def clustalo_align_multiprocessing(fasta_to_align_folder, pool_threads=1, clustalo_threads=2):
     """
     Generate alignments via function <clustalo_align> using multiprocessing.
     """
-    createfolder(alignments_output_folder)
+
+    input_folder_basename = os.path.basename(fasta_to_align_folder)
+    output_folder = f'{input_folder_basename}_clustal'
+    # print(f'output_folder from clustal_align_multiprocessing: {output_folder}')
+    createfolder(output_folder)
+
     logger.debug('Generating alignments for fasta files using clustal omega...\n')
     target_genes = [file for file in sorted(glob.glob(f'{fasta_to_align_folder}/*.fasta'))]
 
@@ -325,15 +338,22 @@ def clustalo_align_multiprocessing(fasta_to_align_folder, alignments_output_fold
         manager = Manager()
         lock = manager.Lock()
         counter = manager.Value('i', 0)
-        future_results = [pool.submit(clustalo_align, fasta_file, alignments_output_folder, counter, lock,
-                                      num_files_to_process=len(target_genes), threads=clustalo_threads)
+        future_results = [pool.submit(clustalo_align,
+                                      fasta_file,
+                                      output_folder,
+                                      counter,
+                                      lock,
+                                      num_files_to_process=len(target_genes),
+                                      threads=clustalo_threads)
                           for fasta_file in target_genes]
         for future in future_results:
             future.add_done_callback(done_callback)
         wait(future_results, return_when="ALL_COMPLETED")
-    alignment_list = [alignment for alignment in glob.glob(f'{alignments_output_folder}/*.aln.fasta') if
+    alignment_list = [alignment for alignment in glob.glob(f'{output_folder}/*.aln.fasta') if
                       file_exists_and_not_empty(alignment)]
     logger.debug(f'\n{len(alignment_list)} alignments generated from {len(future_results)} fasta files...\n')
+
+    return output_folder
 
 
 def parse_arguments():
@@ -348,10 +368,8 @@ def parse_arguments():
                         help='If specified, realign mafft alignments with clustal omega')
     parser.add_argument('-use_muscle', action='store_true', default=False,
                         help='If specified, use muscle rather than mafft')
-    # group_1 = parser.add_mutually_exclusive_group()
     parser.add_argument('-mafft_algorithm', default='auto', help='Algorithm to use for mafft alignments')
-    # group_1.add_argument('-mafft_algorithm_auto', action='store_true', default=False, help='use --auto for mafft '
-    #                                                                                        'algorithm')
+
 
     results = parser.parse_args()
     return results
@@ -381,19 +399,17 @@ def main():
     elif args.no_supercontigs:  # Re-align with Clustal Omega.
         logger.debug(f'Running with no_supercontigs option - realigning with clustal omega')
         alignments_output_folder = mafft_align_multiprocessing(args.gene_fasta_directory,
-                                                               folder_01a,
+                                                               algorithm=args.mafft_algorithm,
                                                                pool_threads=args.pool,
                                                                mafft_threads=args.threads,
                                                                no_supercontigs=True,
                                                                use_muscle=args.use_muscle)
 
-        clustalo_align_multiprocessing(folder_01a,
-                                       folder_01b,
-                                       pool_threads=args.pool,
-                                       clustalo_threads=args.threads)
+        clustal_alignment_output_folder = clustalo_align_multiprocessing(alignments_output_folder,
+                                                                         pool_threads=args.pool,
+                                                                         clustalo_threads=args.threads)
 
-        run_hmm_cleaner(folder_01b,
-                        folder_02)
+        run_hmm_cleaner(clustal_alignment_output_folder)
 
 
 ########################################################################################################################
