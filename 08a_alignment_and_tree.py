@@ -542,7 +542,7 @@ def add_outgroup_seqs(original_paralog_gene_fasta_directory, folder_of_qc_paralo
         ingroup_taxon_names = [name for name in all_paralog_taxon_names if name not in list_of_internal_outgroups]
     else:
         ingroup_taxon_names = [name for name in all_paralog_taxon_names]
-    with open(f'in_and_outgroups_list_{os.path.basename(folder_of_qc_paralog_files)}', 'w') as group_list:
+    with open(f'in_and_outgroups_list_{os.path.basename(folder_of_qc_paralog_files)}.txt', 'w') as group_list:
         if list_of_internal_outgroups:
             for taxon in list_of_internal_outgroups:
                 group_list.write(f'OUT\t{taxon}\n')
