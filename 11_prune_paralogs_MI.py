@@ -102,7 +102,7 @@ if __name__ == "__main__":
     for i in os.listdir(inDIR):
         if not i.endswith(tree_file_ending): continue
         print(i)
-        with open(inDIR + i, "r") as infile:  # only 1 tree in each file
+        with open(inDIR + i, "r") as infile:  # only 1  tree in each file
             intree = newick3.parse(infile.readline())
         curroot = intree
         # print(curroot)
