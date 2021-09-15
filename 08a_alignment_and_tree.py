@@ -252,6 +252,7 @@ def clustalo_align(fasta_file, output_folder, counter, lock, num_files_to_proces
     filename
     of the alignment produced.
     """
+
     createfolder(output_folder)
     fasta_file_basename = os.path.basename(fasta_file)
     expected_alignment_file = f'{output_folder}/{fasta_file_basename}'
@@ -592,11 +593,6 @@ def parse_arguments():
 
 def main():
     results = parse_arguments()
-
-    folder_00 = f'{cwd}/08_outgroups_added'
-    folder_01a = f'{cwd}/09a_mafft_realigned'
-    folder_01b = f'{cwd}/09_realigned'
-    folder_02 = f'{cwd}/10_realigned_trees'
 
     # Add outgroup sequences, both internal (if removed by the tree QC steps) and external (if a fasta file of
     # external outgroup sequences is provided).

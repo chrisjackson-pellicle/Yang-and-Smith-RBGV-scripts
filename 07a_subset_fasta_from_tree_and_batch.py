@@ -79,7 +79,7 @@ def subsample_alignments(tree_folder, tree_suffix, alignment_folder, output_fold
             print(f'alignment_prefix is: {alignment_prefix}')
             matching_alignment = f'{alignment_folder}/{alignment_prefix}.paralogs.aln.hmm.trimmed.fasta'
             print(matching_alignment)
-        else:
+        else:  # e.g. 4691_1.1to1ortho.tre, 4471_1.inclade1.ortho1.tre, 4527_1.MIortho1.tre. etc
             alignment_prefix = tree_basename.split('.')[0]
             # output_alignment_prefix = alignment_prefix
             output_alignment_prefix = '.'.join(tree_basename.split('.')[0:-1])
