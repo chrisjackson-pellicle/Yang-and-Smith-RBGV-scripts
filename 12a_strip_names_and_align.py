@@ -185,7 +185,7 @@ def mafft_align(fasta_file, algorithm, output_folder, counter, lock, num_files_t
               f'{counter.value}/{num_files_to_process}', end='')
 
 
-def mafft_align_multiprocessing(fasta_to_align_folder, alignments_output_folder, algorithm='linsi', pool_threads=1,
+def mafft_align_multiprocessing(fasta_to_align_folder, algorithm='linsi', pool_threads=1,
                                 mafft_threads=2, no_supercontigs=False, use_muscle=False):
     """
     Generate alignments via function <align_targets> using multiprocessing.
@@ -206,7 +206,7 @@ def mafft_align_multiprocessing(fasta_to_align_folder, alignments_output_folder,
         future_results = [pool.submit(mafft_align,
                                       fasta_file,
                                       algorithm,
-                                      alignments_output_folder,
+                                      output_folder,
                                       counter,
                                       lock,
                                       num_files_to_process=len(target_genes),
@@ -217,7 +217,7 @@ def mafft_align_multiprocessing(fasta_to_align_folder, alignments_output_folder,
         for future in future_results:
             future.add_done_callback(done_callback)
         wait(future_results, return_when="ALL_COMPLETED")
-    alignment_list = [alignment for alignment in glob.glob(f'{alignments_output_folder}/*.aln.fasta') if
+    alignment_list = [alignment for alignment in glob.glob(f'{output_folder}/*.aln.fasta') if
                       file_exists_and_not_empty(alignment)]
     logger.info(f'\n{len(alignment_list)} alignments generated from {len(future_results)} fasta files...\n')
 
@@ -252,8 +252,7 @@ def clustalo_align(fasta_file, output_folder, counter, lock, num_files_to_proces
         return os.path.basename(expected_alignment_file)
 
 
-def clustalo_align_multiprocessing(fasta_to_align_folder, alignments_output_folder, pool_threads=1,
-                                clustalo_threads=2):
+def clustalo_align_multiprocessing(fasta_to_align_folder, pool_threads=1, clustalo_threads=2):
     """
     Generate alignments via function <clustalo_align> using multiprocessing.
     """
@@ -272,7 +271,7 @@ def clustalo_align_multiprocessing(fasta_to_align_folder, alignments_output_fold
         counter = manager.Value('i', 0)
         future_results = [pool.submit(clustalo_align,
                                       fasta_file,
-                                      alignments_output_folder,
+                                      output_folder,
                                       counter,
                                       lock,
                                       num_files_to_process=len(target_genes),
@@ -281,7 +280,7 @@ def clustalo_align_multiprocessing(fasta_to_align_folder, alignments_output_fold
         for future in future_results:
             future.add_done_callback(done_callback)
         wait(future_results, return_when="ALL_COMPLETED")
-    alignment_list = [alignment for alignment in glob.glob(f'{alignments_output_folder}/*.aln.fasta') if
+    alignment_list = [alignment for alignment in glob.glob(f'{output_folder}/*.aln.fasta') if
                       file_exists_and_not_empty(alignment)]
     logger.info(f'\n{len(alignment_list)} alignments generated from {len(future_results)} fasta files...\n')
 
