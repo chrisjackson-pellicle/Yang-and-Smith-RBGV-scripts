@@ -34,8 +34,8 @@ def RT(homoDIR, tree_file_eneding, outDIR, min_ingroup_taxa, taxon_code_file_fil
         print("Taxon ID", set(INGROUPS) & set(OUTGROUPS), "in both ingroups and outgroups")
         sys.exit(0)
     print(len(INGROUPS), "ingroup taxa and", len(OUTGROUPS), "outgroup taxa read")
-    print("Ingroups:", INGROUPS)
-    print("Outgroups:", OUTGROUPS)
+    # print("Ingroups:", INGROUPS)
+    # print("Outgroups:", OUTGROUPS)
 
     for treefile in os.listdir(homoDIR):
         if not treefile.endswith(tree_file_eneding):
@@ -71,8 +71,7 @@ def RT(homoDIR, tree_file_eneding, outDIR, min_ingroup_taxa, taxon_code_file_fil
 
         outID = outDIR + tree_utils.get_clusterID(treefile)
         if len(outgroup_names) > 0:  # at least one outgroup present, root and cut inclades
-            inclades = tree_utils.extract_rooted_ingroup_clades(curroot, \
-                                                                INGROUPS, OUTGROUPS, min_ingroup_taxa)
+            inclades = tree_utils.extract_rooted_ingroup_clades(curroot, INGROUPS, OUTGROUPS, min_ingroup_taxa)
             inclade_count = 0
             for inclade in inclades:
                 inclade_count += 1
