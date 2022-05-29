@@ -640,7 +640,7 @@ def main():
         else:
             iqtree_multiprocessing(clustal_alignment_output_folder,
                                    pool_threads=results.threads_pool,
-                                   iqtree_threads=results.threads_iqtree,
+                                   iqtree_threads=results.threads_mafft,
                                    bootstraps=results.generate_bootstraps)
 
 

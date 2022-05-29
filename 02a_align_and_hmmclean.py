@@ -133,7 +133,7 @@ def done_callback(future_returned):
 
 def run_hmm_cleaner(input_folder):
     """
-    Runs HmmCleaner.pl on each alignments within a provided folder.
+    Runs HmmCleaner.pl on each alignment within a provided folder.
     """
 
     input_folder_basename = os.path.basename(input_folder)
@@ -202,7 +202,7 @@ def mafft_align(fasta_file, algorithm, output_folder, counter, lock, num_files_t
                 no_supercontigs=False, use_muscle=False):
     """
     Uses mafft to align a fasta file of sequences, using the algorithm and number of threads provided. Trims
-    alignment with Trimal if no_supercontigs=True. Returns filename of the alignment produced.
+    alignment with Trimal if no_supercontigs=False. Returns filename of the alignment produced.
     """
 
     fasta_file_basename = os.path.basename(fasta_file)
@@ -233,7 +233,7 @@ def mafft_align(fasta_file, algorithm, output_folder, counter, lock, num_files_t
                 mafft_cline = (MafftCommandline(auto='true', adjustdirection='true', thread=threads, input=fasta_file))
             else:
                 mafft_cline = (MafftCommandline(algorithm, adjustdirection='true', thread=threads, input=fasta_file))
-            logger.info(f'Performing MAFFT alignment with command" {mafft_cline}')
+            logger.info(f'Performing MAFFT alignment with command: {mafft_cline}')
             stdout, stderr = mafft_cline()
             with open(expected_alignment_file, 'w') as alignment_file:
                 alignment_file.write(stdout)
@@ -243,13 +243,14 @@ def mafft_align(fasta_file, algorithm, output_folder, counter, lock, num_files_t
             trimmed_alignment = re.sub('.aln.fasta', '.aln.trimmed.fasta', expected_alignment_file)
             run_trim = subprocess.run(['trimal', '-in', expected_alignment_file, '-out', trimmed_alignment,
                                        '-gapthreshold', '0.12', '-terminalonly', '-gw', '1'], check=True)
+
         with lock:
             counter.value += 1
         logger.debug(f'Aligned file {fasta_file_basename}')
         return os.path.basename(expected_alignment_file)
     finally:
         logger.debug(f'\rFinished generating alignment for file {fasta_file_basename}, {counter.value}'
-                     f'/{num_files_to_process}', end='')
+                     f'/{num_files_to_process}')
 
 
 def mafft_align_multiprocessing(fasta_to_align_folder, algorithm='linsi', pool_threads=1,
@@ -316,8 +317,8 @@ def clustalo_align(fasta_file, output_folder, counter, lock, num_files_to_proces
     finally:
         with lock:
             counter.value += 1
-            logger.debug(f'\rFinished generating alignment for file {fasta_file_basename}, '
-                  f'{counter.value}/{num_files_to_process}', end='')
+            logger.debug(f'\rFinished generating alignment for file {fasta_file_basename}, {counter.value}'
+                         f'/{num_files_to_process}')
         return os.path.basename(expected_alignment_file)
 
 
