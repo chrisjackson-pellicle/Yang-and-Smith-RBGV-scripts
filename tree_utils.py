@@ -88,7 +88,13 @@ def get_ortho_from_rooted_inclade(inclade):
     input a rooted tree
     cut appart bifucating nodes when duplicated taxonIDs are detected
     """
-    assert inclade.nchildren == 2, "input clade not properly rooted"
+
+    # assert inclade.nchildren == 2, "input clade not properly rooted"
+    try:
+        assert inclade.nchildren == 2
+    except AssertionError:
+        print(f"input clade not properly rooted for clade {newick3.tostring(inclade)}")
+        raise
     orthologs = []  # store ortho clades
     clades = [inclade]
     while True:
@@ -100,9 +106,15 @@ def get_ortho_from_rooted_inclade(inclade):
                 orthologs.append(clade)
             else:  # has duplicated taxa
                 for node in clade.iternodes(order=0):  # PREORDER, root to tip
-                    if node.istip: continue
+                    if node.istip:
+                        continue
                     # traverse the tree from root to tip
-                    child0, child1 = node.children[0], node.children[1]
+                    try:
+                        child0, child1 = node.children[0], node.children[1]
+                    except:
+                        # print(f'node is {newick3.tostring(node)}')
+                        print(node.children)
+                        raise
                     name_set0 = set(get_front_names(child0))
                     name_set1 = set(get_front_names(child1))
                     if len(name_set0.intersection(name_set1)) > 0:
