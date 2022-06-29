@@ -151,22 +151,32 @@ def run_hmm_cleaner(input_folder):
         try:
             run = subprocess.run(command, shell=True, check=True, capture_output=True)
 
-            # Filter out empty sequences comprised only of dashes
+            # Filter out empty sequences comprised only of dashes, and post-hmmcleaner alignments where all sequences
+            # are either dashes or empty. If fewer than 4 'good' sequences are present, skip gene.
             try:
                 logger.debug(f'trying command {command}')
-                seqs_to_retain = []
+                # seqs_to_retain = []
                 hmm_file = re.sub('aln.trimmed.fasta', 'aln.trimmed_hmm.fasta', str(alignment))
                 hmm_file_output = re.sub('aln.trimmed.fasta', 'aln.hmm.trimmed.fasta', str(alignment))
                 with open(hmm_file, 'r') as hmm_fasta:
+                    good_seqs = []
+                    seqs_all_dashes = []
+                    empty_seqs = []
                     seqs = SeqIO.parse(hmm_fasta, 'fasta')
                     for seq in seqs:
                         characters = set(character for character in seq.seq)
-                        if len(characters) == 1 and '-' in characters:
-                            pass
+                        if len(characters) == 0:
+                            empty_seqs.append(seq)
+                        elif len(characters) == 1 and '-' in characters:
+                            seqs_all_dashes.append(seq)
                         else:
-                            seqs_to_retain.append(seq)
-                with open(hmm_file_output, 'w') as filtered_hmm_fasta:
-                    SeqIO.write(seqs_to_retain, filtered_hmm_fasta, 'fasta')
+                            good_seqs.append(seq)
+                if len(good_seqs) < 4:
+                    logger.warning(f'After hmmcleaner, file {os.path.basename(hmm_file)} contains fewer than 4 good '
+                                   f'sequences, skipping gene!')
+                else:
+                    with open(hmm_file_output, 'w') as filtered_hmm_fasta:
+                        SeqIO.write(good_seqs, filtered_hmm_fasta, 'fasta')
             except:
                 pass
         except subprocess.CalledProcessError:
