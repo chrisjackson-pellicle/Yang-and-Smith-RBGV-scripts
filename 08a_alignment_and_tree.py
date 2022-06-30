@@ -24,8 +24,11 @@ import fnmatch
 import glob
 import subprocess
 import shutil
+import copy
 from collections import defaultdict
 from Bio import SeqIO, AlignIO
+from Bio.Phylo.TreeConstruction import DistanceCalculator
+from Bio.Align import MultipleSeqAlignment
 from Bio.Align.Applications import MafftCommandline, ClustalOmegaCommandline, MuscleCommandline
 from concurrent.futures.process import ProcessPoolExecutor
 from multiprocessing import Manager
@@ -450,6 +453,57 @@ def fasttree(alignment_file, output_folder, counter, lock, num_files_to_process,
               f'/{num_files_to_process}', end='')
 
 
+def filter_internal_outgroups(internal_outgroup_dict, alignment_ingroup_only, gene_id):
+    """
+    Filters internal outgroups with paralogs to retain the single sequence most divergent from the ingroup
+    """
+
+    # Make a copy of the internal_outgroup_dict so that items can be deleted and the dict returned:
+    internal_outgroup_dict_copy = copy.deepcopy(internal_outgroup_dict)
+
+    # Check of there are paralogs for any internal outgroup:
+    for taxon_id, sequence_list in internal_outgroup_dict[gene_id].items():
+        if len(sequence_list) > 1:
+            logger.info(f'Taxon {taxon_id} is an internal outgroup, and has more than one sequence for gene '
+                        f'{gene_id}. Only the sequence most divergent from the ingroup taxa will be retained.')
+
+            seq_to_keep_distance = 0.0  # default value, same at every position
+            seq_to_keep = None
+
+            for seq in sequence_list:
+                alignment_ingroup_only_edit = copy.deepcopy(alignment_ingroup_only)
+                assert len(seq) == alignment_ingroup_only.get_alignment_length()
+                alignment_ingroup_only_edit.append(seq)  # add single sequence to ingroup alignment
+
+                with open(f'{seq.name}.aln.fasta', 'w') as alignment_handle:
+                    AlignIO.write(alignment_ingroup_only_edit, alignment_handle, 'fasta')
+
+                for sequence in alignment_ingroup_only_edit:  # Distance matrix requires capital letters
+                    sequence.seq = sequence.seq.upper()
+
+                # Create a distance matrix
+                skip_letters = set(letter for sequence in alignment_ingroup_only_edit for letter in sequence.seq if
+                                   letter not in ['A', 'T', 'C', 'G'])
+                my_calculator = DistanceCalculator('blastn', skip_letters=''.join(skip_letters))
+                trimmed_dm = my_calculator.get_distance(alignment_ingroup_only_edit)
+                distance_values = trimmed_dm[seq.name]
+                sorted_distance_values = sorted(distance_values, key=float)
+                closest_sequence_distance = sorted_distance_values[1]  # skip zero as it's self-vs-self
+                if closest_sequence_distance > seq_to_keep_distance:
+                    # print(f'{closest_sequence_distance} is larger than {seq_to_keep_distance}')
+                    seq_to_keep_distance = closest_sequence_distance
+                    seq_to_keep = seq
+            # print(f'Keeping sequence {seq_to_keep.name} with distance {seq_to_keep_distance}')
+            internal_outgroup_dict_copy[gene_id][taxon_id] = [seq_to_keep]
+
+    return internal_outgroup_dict_copy
+
+
+
+
+
+
+
 def add_outgroup_seqs(original_paralog_gene_fasta_directory, folder_of_qc_paralog_files, list_of_internal_outgroups,
                       file_of_external_outgroups, list_of_external_outgroups=None):
     """
@@ -467,28 +521,52 @@ def add_outgroup_seqs(original_paralog_gene_fasta_directory, folder_of_qc_paralo
     etc...
 
     """
-    print(f'list_of_internal_outgroups: {list_of_internal_outgroups}')
-    print(f'list_of_external_outgroups: {list_of_external_outgroups}')
+    logger.info(f'list_of_internal_outgroups: {list_of_internal_outgroups}')
+    logger.info(f'list_of_external_outgroups: {list_of_external_outgroups}')
 
     input_folder_basename = os.path.basename(folder_of_qc_paralog_files)
     output_folder = f'{input_folder_basename}_outgroups_added'
-    # print(f'output_folder from add_outgroup_seqs: {output_folder}')
     createfolder(output_folder)  # for the outgroups added fasta files
 
     # Read in original paralog fasta files, and create a dictionary of gene_id:list_of_seq_names for taxa in
     # list_of_internal_outgroups:
-    internal_outgroup_dict = defaultdict(list)
+    internal_outgroup_dict = defaultdict(lambda: defaultdict(list))
     all_paralog_taxon_names = set()
     for fasta in glob.glob(f'{original_paralog_gene_fasta_directory}/*.hmm.trimmed.fasta'):
         gene_id = os.path.basename(fasta).split('.')[0]  # CJJ get prefix e.g. '4471'
         seqs = SeqIO.parse(fasta, 'fasta')
+        alignment = AlignIO.read(fasta, 'fasta')
+
+        # Create an MultipleSeqAlignment object for ingroup sequences only:
+        alignment_ingroup_seqs_only = []
+
+        # Take first 10 sequences from the ingroup alignment for distance matrix calculations:
+        ingroup_count = 0
+        for sequence in alignment:
+            gene_name = sequence.id.split('.')[0]
+            if gene_name not in list_of_internal_outgroups:
+                ingroup_count += 1
+                if ingroup_count <= 10:
+                    alignment_ingroup_seqs_only.append(sequence)
+                else:
+                    break
+        alignment_ingroup_only = MultipleSeqAlignment(alignment_ingroup_seqs_only)
+
+        # Populate the internal_outgroup_dict (potentially more than one sequence per taxon):
         for seq in seqs:
             seq_name_prefix = seq.name.split('.')[0]  # CJJ this assumes that there are no other dots ('.') in the
             # sequence name
             all_paralog_taxon_names.add(seq_name_prefix)
             if list_of_internal_outgroups and seq_name_prefix in list_of_internal_outgroups:
-            # if seq_name_prefix in list_of_internal_outgroups:
-                internal_outgroup_dict[gene_id].append(seq)
+                internal_outgroup_dict[gene_id][seq_name_prefix].append(seq)
+
+        # Filter internal outgroups with paralogs to retain the single sequence most divergent from the ingroup sample:
+        logger.info(f'Detecting paralogs in internal outgroup sequences for gene {gene_id}...')
+        internal_outgroup_dict_filtered = filter_internal_outgroups(internal_outgroup_dict,
+                                                                    alignment_ingroup_only,
+                                                                    gene_id)
+        # Reassign internal_outgroup_dict[gene_id] dictionary entry to selected sequences:
+        internal_outgroup_dict[gene_id] = internal_outgroup_dict_filtered[gene_id]
 
     # Read in external outgroups file, and create a dictionary of gene_id:list_of_seq_names, either for all seqs if
     # no external outgroup taxa specified, or for specified taxa only:
@@ -509,34 +587,24 @@ def add_outgroup_seqs(original_paralog_gene_fasta_directory, folder_of_qc_paralo
                 external_outgroup_dict[gene_id].append(seq)
     all_external_outgroup_taxon_names = set([seq.name for gene_id, seq_list in external_outgroup_dict.items() for seq
                                              in seq_list])
-    # print(f'all_external_outgroup_taxon_names: {all_external_outgroup_taxon_names}')
-    # print(f'external_outgroup_dict is: {external_outgroup_dict}')
 
     # Read in QC-d paralog files, add outgroup seqs, and write new fasta files ready for alignment:
     for fasta in glob.glob(f'{folder_of_qc_paralog_files}/*.selected.fa'):
         gene_id = re.sub('_[1-9]$', '', str(os.path.basename(fasta).split('.')[0]))
         gene_id_with_subtree_number = os.path.basename(fasta).split('.')[0]  # CJJ TEST
-        # print(f'gene_id_with_subtree_number: {gene_id_with_subtree_number}')
 
         seqs = list(SeqIO.parse(fasta, 'fasta'))
-        seq_names = [seq.name for seq in seqs]
+        seqs_to_write = [seq for seq in seqs if seq.name.split('.')[0] not in list_of_internal_outgroups]
         external_outgroup_seqs = external_outgroup_dict[gene_id]
-        # print(f'external_outgroup_seqs: {external_outgroup_seqs}')
-        internal_outgroup_seqs = internal_outgroup_dict[gene_id]
+        for taxon, sequence_list in internal_outgroup_dict[gene_id].items():  # add internal outgroup seqs
+            seqs_to_write.extend(sequence_list)
 
-        for seq in internal_outgroup_seqs:
-            if seq.name not in seq_names:  # CJJ i.e. if the internal outgroup seq has been removed during QC steps
-                print(f'Sequence {seq.name} was removed by previous QC steps - adding back in as outgroup sequence '
-                      f'to file {os.path.basename(fasta)}!\n')
-                seqs.append(seq)
-        seqs.extend(external_outgroup_seqs)  # CJJ add external outgroup seqs
+        seqs.extend(external_outgroup_seqs)  # add external outgroup seqs
 
         # Write new files with outgroup sequences added (in the same directory as QC-d paralog files): #TODO: change
         #  CJJ this or it breaks Nextflow resume!!! CJJ is this done 19July2021?
-        # with open(f'{output_folder}/{gene_id}.outgroup_added.fasta', 'w') as outgroup_added:
-        #     SeqIO.write(seqs, outgroup_added, 'fasta')
         with open(f'{output_folder}/{gene_id_with_subtree_number}.outgroup_added.fasta', 'w') as outgroup_added:
-            SeqIO.write(seqs, outgroup_added, 'fasta')
+            SeqIO.write(seqs_to_write, outgroup_added, 'fasta')
 
     # Write the IN and OUT taxon text file required by some paralogy resolution methods (MO, RT):
     if list_of_internal_outgroups:
@@ -602,46 +670,46 @@ def main():
                                                results.external_outgroups_file,
                                                list_of_external_outgroups=results.external_outgroups)
 
-    if not results.no_supercontigs:  # i.e. if it's a standard run.
-        alignments_output_folder = mafft_align_multiprocessing(outgroups_added_folder,
-                                                               algorithm=results.mafft_algorithm,
-                                                               pool_threads=results.threads_pool,
-                                                               mafft_threads=results.threads_mafft,
-                                                               no_supercontigs=results.no_supercontigs,
-                                                               use_muscle=results.use_muscle)
-
-        # Generate trees:
-        if results.use_fasttree:
-            fasttree_multiprocessing(alignments_output_folder,
-                                     pool_threads=results.threads_pool,
-                                     bootstraps=results.generate_bootstraps)  # Uses OpenMP with max threads default
-        else:
-            iqtree_multiprocessing(alignments_output_folder,
-                                   pool_threads=results.threads_pool,
-                                   iqtree_threads=results.threads_mafft,
-                                   bootstraps=results.generate_bootstraps)
-
-    elif results.no_supercontigs:  # re-align with Clustal Omega.
-        alignments_output_folder = mafft_align_multiprocessing(outgroups_added_folder,
-                                                               algorithm=results.mafft_algorithm,
-                                                               pool_threads=results.threads_pool,
-                                                               mafft_threads=results.threads_mafft,
-                                                               no_supercontigs=results.no_supercontigs,
-                                                               use_muscle=results.use_muscle)
-
-        clustal_alignment_output_folder = clustalo_align_multiprocessing(alignments_output_folder,
-                                                                         pool_threads=results.threads_pool,
-                                                                         clustalo_threads=results.threads_mafft)
-        # Generate trees:
-        if results.use_fasttree:
-            fasttree_multiprocessing(clustal_alignment_output_folder,
-                                     pool_threads=results.threads_pool,
-                                     bootstraps=results.generate_bootstraps)  # Uses OpenMP with max threads default
-        else:
-            iqtree_multiprocessing(clustal_alignment_output_folder,
-                                   pool_threads=results.threads_pool,
-                                   iqtree_threads=results.threads_mafft,
-                                   bootstraps=results.generate_bootstraps)
+    # if not results.no_supercontigs:  # i.e. if it's a standard run.
+    #     alignments_output_folder = mafft_align_multiprocessing(outgroups_added_folder,
+    #                                                            algorithm=results.mafft_algorithm,
+    #                                                            pool_threads=results.threads_pool,
+    #                                                            mafft_threads=results.threads_mafft,
+    #                                                            no_supercontigs=results.no_supercontigs,
+    #                                                            use_muscle=results.use_muscle)
+    #
+    #     # Generate trees:
+    #     if results.use_fasttree:
+    #         fasttree_multiprocessing(alignments_output_folder,
+    #                                  pool_threads=results.threads_pool,
+    #                                  bootstraps=results.generate_bootstraps)  # Uses OpenMP with max threads default
+    #     else:
+    #         iqtree_multiprocessing(alignments_output_folder,
+    #                                pool_threads=results.threads_pool,
+    #                                iqtree_threads=results.threads_mafft,
+    #                                bootstraps=results.generate_bootstraps)
+    #
+    # elif results.no_supercontigs:  # re-align with Clustal Omega.
+    #     alignments_output_folder = mafft_align_multiprocessing(outgroups_added_folder,
+    #                                                            algorithm=results.mafft_algorithm,
+    #                                                            pool_threads=results.threads_pool,
+    #                                                            mafft_threads=results.threads_mafft,
+    #                                                            no_supercontigs=results.no_supercontigs,
+    #                                                            use_muscle=results.use_muscle)
+    #
+    #     clustal_alignment_output_folder = clustalo_align_multiprocessing(alignments_output_folder,
+    #                                                                      pool_threads=results.threads_pool,
+    #                                                                      clustalo_threads=results.threads_mafft)
+    #     # Generate trees:
+    #     if results.use_fasttree:
+    #         fasttree_multiprocessing(clustal_alignment_output_folder,
+    #                                  pool_threads=results.threads_pool,
+    #                                  bootstraps=results.generate_bootstraps)  # Uses OpenMP with max threads default
+    #     else:
+    #         iqtree_multiprocessing(clustal_alignment_output_folder,
+    #                                pool_threads=results.threads_pool,
+    #                                iqtree_threads=results.threads_mafft,
+    #                                bootstraps=results.generate_bootstraps)
 
 
 ########################################################################################################################
