@@ -3,13 +3,17 @@
 # Author: Chris Jackson
 
 """
-Aligns the fasta file using mafft.
+Input is fasta files that have undergone QC processes; this QC may have removed internal outgroups (if specified).
+This script:
 
-########################################################################################################################
-Additional information:
+    - Checks for any paralogs in internal outgroups (if the latter are specified), and selects a single
+    representative sequence for each taxon  - this will be the sequence with the highest distance from a sample of up
+    to 10 ingroup sequences.
+    - Aligns the sequences using either MAFFT or MUSCLE.
+    - Generates trees from the alignments using either IQTREE or FastTreeMP.
 
-Text Here
-########################################################################################################################
+NOTE: trees generated with FASTREEMP can contain polytomies, which will need to be resolved before processing with
+the Yang and Smith scripts!
 
 """
 
@@ -23,7 +27,6 @@ import re
 import fnmatch
 import glob
 import subprocess
-import shutil
 import copy
 from collections import defaultdict
 from Bio import SeqIO, AlignIO
@@ -93,48 +96,6 @@ def file_exists_and_not_empty(file_name):
     """
     # Check if file exist and is not empty
     return os.path.isfile(file_name) and not os.path.getsize(file_name) == 0
-
-
-def concatenate_small(outfile, *args):
-    """
-    e.g. concatenate_small('test.fastq', 'IDX01_S1_L001_R1_001.fastq', 'IDX01_S1_L001_R2_001.fastq')
-    """
-    with open(outfile, 'a+') as outfile:
-        for filename in args:
-            with open(filename, 'r') as infile:
-                outfile.write(infile.read())
-
-
-def gunzip(file):
-    """
-    Unzips a .gz file unless unzipped file already exists
-    """
-    expected_unzipped_file = re.sub('.gz', '', file)
-    if not file_exists_and_not_empty(expected_unzipped_file):
-        with open(expected_unzipped_file, 'w') as outfile:
-            with gzip.open(file, 'rt') as infile:
-                outfile.write(infile.read())
-        os.remove(file)
-
-
-def multiprocessing(input_folder, output_folder, pool_threads=1):
-    """
-    General function for multiprocessing. Adds a callback function to each future.
-    """
-
-    createfolder(output_folder)
-    to_process_list = [file for file in sorted(glob.glob(f'{input_folder}'))]
-
-    with ProcessPoolExecutor(max_workers=pool_threads) as pool:
-        manager = Manager()
-        lock = manager.Lock()
-        counter = manager.Value('i', 0)
-        future_results = [pool.submit(function_x, function_arg_1, counter, lock,
-                                      num_files_to_process=len(to_process_list))
-                          for function_arg_1 in to_process_list]
-        for future in future_results:
-            future.add_done_callback(done_callback)
-        wait(future_results, return_when="ALL_COMPLETED")
 
 
 def done_callback(future_returned):
@@ -475,9 +436,6 @@ def filter_internal_outgroups(internal_outgroup_dict, alignment_ingroup_only, ge
                 assert len(seq) == alignment_ingroup_only.get_alignment_length()
                 alignment_ingroup_only_edit.append(seq)  # add single sequence to ingroup alignment
 
-                with open(f'{seq.name}.aln.fasta', 'w') as alignment_handle:
-                    AlignIO.write(alignment_ingroup_only_edit, alignment_handle, 'fasta')
-
                 for sequence in alignment_ingroup_only_edit:  # Distance matrix requires capital letters
                     sequence.seq = sequence.seq.upper()
 
@@ -490,18 +448,13 @@ def filter_internal_outgroups(internal_outgroup_dict, alignment_ingroup_only, ge
                 sorted_distance_values = sorted(distance_values, key=float)
                 closest_sequence_distance = sorted_distance_values[1]  # skip zero as it's self-vs-self
                 if closest_sequence_distance > seq_to_keep_distance:
-                    # print(f'{closest_sequence_distance} is larger than {seq_to_keep_distance}')
+                    logger.debug(f'{closest_sequence_distance} is larger than {seq_to_keep_distance}')
                     seq_to_keep_distance = closest_sequence_distance
                     seq_to_keep = seq
-            # print(f'Keeping sequence {seq_to_keep.name} with distance {seq_to_keep_distance}')
+            logger.debug(f'Keeping sequence {seq_to_keep.name} with distance {seq_to_keep_distance}')
             internal_outgroup_dict_copy[gene_id][taxon_id] = [seq_to_keep]
 
     return internal_outgroup_dict_copy
-
-
-
-
-
 
 
 def add_outgroup_seqs(original_paralog_gene_fasta_directory, folder_of_qc_paralog_files, list_of_internal_outgroups,
@@ -670,46 +623,46 @@ def main():
                                                results.external_outgroups_file,
                                                list_of_external_outgroups=results.external_outgroups)
 
-    # if not results.no_supercontigs:  # i.e. if it's a standard run.
-    #     alignments_output_folder = mafft_align_multiprocessing(outgroups_added_folder,
-    #                                                            algorithm=results.mafft_algorithm,
-    #                                                            pool_threads=results.threads_pool,
-    #                                                            mafft_threads=results.threads_mafft,
-    #                                                            no_supercontigs=results.no_supercontigs,
-    #                                                            use_muscle=results.use_muscle)
-    #
-    #     # Generate trees:
-    #     if results.use_fasttree:
-    #         fasttree_multiprocessing(alignments_output_folder,
-    #                                  pool_threads=results.threads_pool,
-    #                                  bootstraps=results.generate_bootstraps)  # Uses OpenMP with max threads default
-    #     else:
-    #         iqtree_multiprocessing(alignments_output_folder,
-    #                                pool_threads=results.threads_pool,
-    #                                iqtree_threads=results.threads_mafft,
-    #                                bootstraps=results.generate_bootstraps)
-    #
-    # elif results.no_supercontigs:  # re-align with Clustal Omega.
-    #     alignments_output_folder = mafft_align_multiprocessing(outgroups_added_folder,
-    #                                                            algorithm=results.mafft_algorithm,
-    #                                                            pool_threads=results.threads_pool,
-    #                                                            mafft_threads=results.threads_mafft,
-    #                                                            no_supercontigs=results.no_supercontigs,
-    #                                                            use_muscle=results.use_muscle)
-    #
-    #     clustal_alignment_output_folder = clustalo_align_multiprocessing(alignments_output_folder,
-    #                                                                      pool_threads=results.threads_pool,
-    #                                                                      clustalo_threads=results.threads_mafft)
-    #     # Generate trees:
-    #     if results.use_fasttree:
-    #         fasttree_multiprocessing(clustal_alignment_output_folder,
-    #                                  pool_threads=results.threads_pool,
-    #                                  bootstraps=results.generate_bootstraps)  # Uses OpenMP with max threads default
-    #     else:
-    #         iqtree_multiprocessing(clustal_alignment_output_folder,
-    #                                pool_threads=results.threads_pool,
-    #                                iqtree_threads=results.threads_mafft,
-    #                                bootstraps=results.generate_bootstraps)
+    if not results.no_supercontigs:  # i.e. if it's a standard run.
+        alignments_output_folder = mafft_align_multiprocessing(outgroups_added_folder,
+                                                               algorithm=results.mafft_algorithm,
+                                                               pool_threads=results.threads_pool,
+                                                               mafft_threads=results.threads_mafft,
+                                                               no_supercontigs=results.no_supercontigs,
+                                                               use_muscle=results.use_muscle)
+
+        # Generate trees:
+        if results.use_fasttree:
+            fasttree_multiprocessing(alignments_output_folder,
+                                     pool_threads=results.threads_pool,
+                                     bootstraps=results.generate_bootstraps)  # Uses OpenMP with max threads default
+        else:
+            iqtree_multiprocessing(alignments_output_folder,
+                                   pool_threads=results.threads_pool,
+                                   iqtree_threads=results.threads_mafft,
+                                   bootstraps=results.generate_bootstraps)
+
+    elif results.no_supercontigs:  # re-align with Clustal Omega.
+        alignments_output_folder = mafft_align_multiprocessing(outgroups_added_folder,
+                                                               algorithm=results.mafft_algorithm,
+                                                               pool_threads=results.threads_pool,
+                                                               mafft_threads=results.threads_mafft,
+                                                               no_supercontigs=results.no_supercontigs,
+                                                               use_muscle=results.use_muscle)
+
+        clustal_alignment_output_folder = clustalo_align_multiprocessing(alignments_output_folder,
+                                                                         pool_threads=results.threads_pool,
+                                                                         clustalo_threads=results.threads_mafft)
+        # Generate trees:
+        if results.use_fasttree:
+            fasttree_multiprocessing(clustal_alignment_output_folder,
+                                     pool_threads=results.threads_pool,
+                                     bootstraps=results.generate_bootstraps)  # Uses OpenMP with max threads default
+        else:
+            iqtree_multiprocessing(clustal_alignment_output_folder,
+                                   pool_threads=results.threads_pool,
+                                   iqtree_threads=results.threads_mafft,
+                                   bootstraps=results.generate_bootstraps)
 
 
 ########################################################################################################################
