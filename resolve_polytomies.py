@@ -27,6 +27,7 @@ if sys.version_info[0] < 3:
 cwd = os.getcwd()
 host = socket.gethostname()
 
+
 # Configure logger:
 def setup_logger(name, log_file, console_level=logging.INFO, file_level=logging.DEBUG,
                  logger_object_level=logging.DEBUG):
@@ -100,7 +101,7 @@ def file_exists_and_not_empty(file_name):
 
 def resolve_polytomies(treefile_directory, resolved_treefile_output_directory):
     """
-    Iterates over tree newick files in a directory. For each tree, checks to polyotomies and arbitrarily resolves them.
+    Iterates over tree newick files in a directory. For each tree, checks for polyotomies and arbitrarily resolves them.
 
     """
 
