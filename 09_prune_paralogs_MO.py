@@ -1,4 +1,4 @@
-# Author: Yand and Smith, modified by Alexander Schmidt-Lebuhn
+# Author: Yang and Smith, modified by Alexander Schmidt-Lebuhn
 
 """
 Taxon duplication? --No--> output one-to-one orthologs
@@ -23,52 +23,13 @@ If not to output 1-to-1 orthologs, for example, already analysed these
 set OUTPUT_1to1_ORTHOLOGS to False
 """
 
-import phylo3, newick3, os, sys
-
-OUTPUT_1to1_ORTHOLOGS = True
-
-"""
-#for Millipedes data set
-OUTGROUPS = ["Daph","Ixod"]
-INGROUPS = ["Abac","Arch","Brac","Camb","Clei","Glom","Lith","Peta","Pros","Pseu"]
-MIN_TAXA = 8
-
-#for Hymenoptera data set
-OUTGROUPS = ["Nvit"]
-INGROUPS = ["Amel","Argochrysis","Brachycistis","Bradynobaenidae","Bter","Chyphotes","Crioscolia","Hsal","Lasioglossum","Lhum","Megachile","Mischocyttarus","Pbar","Pepsis","Pseudomasaris","Sceliphron","Sphaeropthalma","Stigmatomma"]
-MIN_TAXA = 8
-
-#for grape data set
-OUTGROUPS = ["9"]
-INGROUPS = ["Viti","24","19","41","26","27","4","10","12","40","3","11","5","8","13"]
-
-#for tutorial data set
-OUTGROUPS = ["Beta"]
-INGROUPS = ["HURS","NXTS","RNBN","SCAO"]
-"""
-
-# copied this over from MO script because this one had ingroup and outgroup hardcoded; hope it works
-INGROUPS = []
-OUTGROUPS = []
-# taxon_code_file_file = "in_out"	# hardcoded, but could deal with that as a command line parameter
-taxon_code_file_file = sys.argv[5]
-with open(taxon_code_file_file, "r") as infile:
-    for line in infile:
-        if len(line) < 3: continue
-        spls = line.strip().split("\t")
-        if spls[0] == "IN":
-            INGROUPS.append(spls[1])
-        elif spls[0] == "OUT":
-            OUTGROUPS.append(spls[1])
-        else:
-            print("Check taxon_code_file file format")
-            sys.exit()
-if len(set(INGROUPS) & set(OUTGROUPS)) > 0:
-    print("Taxon ID", set(INGROUPS) & set(OUTGROUPS), "in both ingroups and outgroups")
-    sys.exit(0)
-print(len(INGROUPS), "ingroup taxa and", len(OUTGROUPS), "outgroup taxa read")
-print("Ingroups:", INGROUPS)
-print("Outgroups:", OUTGROUPS)
+import phylo3
+import newick3
+import os
+import sys
+import argparse
+import glob
+import shutil
 
 
 # if pattern changes, change it here
@@ -134,8 +95,8 @@ def reroot_with_monophyletic_outgroups(root):
     # Since no taxon repeat in outgroups name and leaf is one-to-one
     outgroup_labels = []
     for leaf in lvs:
-        label = leaf.label
-        name = get_name(label)
+        label = leaf.label  # CJJ e.g. 376678.main or 376728.0, etc
+        name = get_name(label)  # CJJ e.g. 376678 or 376728, etc
         if name in OUTGROUPS:
             outgroup_matches[label] = leaf
             outgroup_labels.append(leaf.label)
@@ -145,7 +106,7 @@ def reroot_with_monophyletic_outgroups(root):
         return phylo3.reroot(root, new_root)
     else:  # has multiple outgroups. Check monophyly and reroot
         newroot = None
-        for node in root.iternodes():
+        for node in root.iternodes():  # CJJ iterate over nodes and try to find one with monophyletic outgroup
             if node == root:
                 continue  # skip the root
             front_names = get_front_names(node)
@@ -211,9 +172,15 @@ def prune_paralogs_from_rerooted_homotree(root):
             else:
                 root.remove_child(node0)
                 node0.prune()
+
     while len(get_front_names(root)) > len(set(get_front_names(root))):
-        for node in root.iternodes(order=0):  # PREORDER, root to tip
-            if node.istip or node == root: continue
+        for node in root.iternodes(order=0):  # PREORDER, root to tip  CJJ: this tree includes outgroup taxa
+
+            if node.istip:
+                continue
+            elif node == root:
+                continue
+
             child0, child1 = node.children[0], node.children[1]
             name_set0 = set(get_front_names(child0))
             name_set1 = set(get_front_names(child1))
@@ -224,40 +191,66 @@ def prune_paralogs_from_rerooted_homotree(root):
                 else:
                     node.remove_child(child0)
                     child0.prune()
-                node, root = remove_kink(node, root)  # no rerooting here
+                node, root = remove_kink(node, root)  # no re-rooting here
                 break
     return root
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 6:
-        print("python python prune_paralogs_MO.py homoTreeDIR tree_file_ending minimal_taxa outDIR")
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('treefile_folder', type=str, help='A folder containing tree files')
+    parser.add_argument('treefile_suffix', type=str, default='.treefile',
+                        help='suffix for the tree files, default is ".treefile".')
+    parser.add_argument('minimum_taxa', type=int, help='Minimum number of taxa required')
+    parser.add_argument('output_directory', type=str, help='Name for output directory')
+    parser.add_argument('in_and_outgroup_list', type=str, help='Text file listing in and out-group taxa')
+
+    args = parser.parse_args()
+
+    OUTPUT_1to1_ORTHOLOGS = True
+    INGROUPS = []
+    OUTGROUPS = []
+
+    # taxon_code_file_file = sys.argv[5]
+    with open(args.in_and_outgroup_list, "r") as infile:
+        for line in infile:
+            if len(line) < 3:
+                continue
+            sample = line.strip().split("\t")
+            if sample[0] == "IN":
+                INGROUPS.append(sample[1])
+            elif sample[0] == "OUT":
+                OUTGROUPS.append(sample[1])
+            else:
+                print("Check taxon_code_file file format")
+                sys.exit()
+
+    if len(set(INGROUPS) & set(OUTGROUPS)) > 0:
+        print("Taxon ID", set(INGROUPS) & set(OUTGROUPS), "in both ingroup and outgroup")
         sys.exit(0)
 
-    inDIR = sys.argv[1] + "/"
-    tree_file_ending = sys.argv[2]
-    MIN_TAXA = int(sys.argv[3])
-    outDIR = sys.argv[4] + "/"
+    print(len(INGROUPS), "ingroup taxa and", len(OUTGROUPS), "outgroup taxa read")
 
-    for i in os.listdir(inDIR):
-        if not i.endswith(tree_file_ending):
-            continue
-        print(i)
+    for treefile in glob.glob(f'{args.treefile_folder}/*{args.treefile_suffix}'):
+        treefile_basename = os.path.basename(treefile)
+
         # read in the tree and check number of taxa
-        outID = outDIR + get_clusterID(i)
-        with open(inDIR + i, "r") as infile:
+        outID = f'{args.output_directory}/{get_clusterID(treefile_basename)}'
+
+        # with open(inDIR + treefile, "r") as infile:
+        with open(treefile, "r") as infile:
             intree = newick3.parse(infile.readline())
-        curroot = intree
-        names = get_front_names(curroot)
-        # print(f'names: {names}')
-        num_tips, num_taxa = len(names), len(set(names))
-        if num_taxa < MIN_TAXA:
-            continue  # not enough taxa
+            curroot = intree
+            names = get_front_names(curroot)
+            num_tips, num_taxa = len(names), len(set(names))
+            if num_taxa < args.minimum_taxa:
+                continue  # not enough taxa
 
         # If the homolog has no taxon duplication, no cutting is needed
         if num_tips == num_taxa:
             if OUTPUT_1to1_ORTHOLOGS:
-                os.system("cp " + inDIR + i + " " + outID + ".1to1ortho.tre")
+                shutil.copy(treefile, f'{outID}.1to1ortho.tre')
         else:
             # now need to deal with taxon duplications
             # check to make sure that the ingroup and outgroup names were set correctly
@@ -267,36 +260,37 @@ if __name__ == "__main__":
                     print("check name", name)
                     unrecognised_names.append(name)
                     with open('prune_MO_trees_skipped_incorrect_names.txt', 'a+') as mafft_reversed_log:
-                        mafft_reversed_log.write(f'Check outgroup sequence for tree {i}, sequence {name}\n')
+                        mafft_reversed_log.write(f'Check outgroup sequence for tree {treefile}, sequence {name}\n')
             if len(unrecognised_names) != 0:
                 print(f'unrecognised_names: {unrecognised_names}')
                 continue  # CJJ should just skip these trees, not stop completely
 
             outgroup_names = get_front_outgroup_names(curroot)
-            print(f'outgroup_names: {outgroup_names}')
 
             # if no outgroup at all, do not attempt to resolve gene duplication
             if len(outgroup_names) == 0:
-                print("duplicated taxa in unrooted tree")
+                print(f"duplicated taxa in unrooted tree {treefile}")
+                # CJJ I don't understand why the message above is printed - shouldn't it say 'no outgroup taxa for tree?
 
             # skip the homolog if there are duplicated outgroup taxa
             elif len(outgroup_names) > len(set(outgroup_names)):
-                print("outgroup contains taxon repeats")
+                print(f"Outgroup contains taxon repeats, skipping tree {treefile_basename}")
 
             else:  # at least one outgroup present and there's no outgroup duplication
                 if curroot.nchildren == 2:  # need to reroot
                     temp, curroot = remove_kink(curroot, curroot)
                 curroot = reroot_with_monophyletic_outgroups(curroot)
-                # only return one tree after prunning
-                if curroot != None:
-                    with open(outID + ".reroot", "w") as outfile:
-                        outfile.write(newick3.tostring(curroot) + ";\n")
+
+                # only return one tree after pruning
+                if curroot != None:  # CJJ i.e. the outgroup was monophyletic
+                    with open(f'{outID}.reroot', "w") as outfile:
+                        outfile.write(newick3.tostring(curroot) + ";\n")  # CJJ write re-rooted trees to file
                     ortho = prune_paralogs_from_rerooted_homotree(curroot)
-                    if len(set(get_front_names(curroot))) >= MIN_TAXA:
-                        with open(outID + ".ortho.tre", "w") as outfile:
+                    if len(set(get_front_names(curroot))) >= args.minimum_taxa:
+                        with open(f'{outID}.ortho.tre', "w") as outfile:
                             outfile.write(newick3.tostring(ortho) + ";\n")
                     else:
-                        print("not enough taxa after pruning")
+                        print(f"Not enough taxa after pruning for tree {treefile_basename}")
                 else:
-                    print("outgroup non-monophyletic")
+                    print(f"Outgroup non-monophyletic for tree {treefile_basename}")
 
