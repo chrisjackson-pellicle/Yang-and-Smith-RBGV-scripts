@@ -181,8 +181,17 @@ def mafft_align_multiprocessing(fasta_to_align_folder, algorithm='linsi', pool_t
     createfolder(output_folder)
 
     logger.info(f'Generating alignments for fasta files in folder {fasta_to_align_folder}...\n')
-    target_genes = [file for file in sorted(glob.glob(f'{fasta_to_align_folder}/*.outgroup_added.fasta'))]
+    # target_genes = [file for file in sorted(glob.glob(f'{fasta_to_align_folder}/*.outgroup_added.fasta'))]
     # print(target_genes)
+    target_genes = []
+    for fasta_file in sorted(glob.glob(f'{fasta_to_align_folder}/*.outgroup_added.fasta')):
+        with open(fasta_file, 'r') as input_fasta_handle:
+            seqs = list(SeqIO.parse(input_fasta_handle, 'fasta'))
+            if len(seqs) < 4:
+                logger.warning(f'Skipping file {fasta_file} as it contains fewer than 4 sequences!')
+                continue
+            else:
+                target_genes.append(fasta_file)
 
     with ProcessPoolExecutor(max_workers=pool_threads) as pool:
         manager = Manager()
