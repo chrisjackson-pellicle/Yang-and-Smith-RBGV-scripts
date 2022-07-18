@@ -483,6 +483,7 @@ def add_outgroup_seqs(original_paralog_gene_fasta_directory, folder_of_qc_paralo
     etc...
 
     """
+
     logger.info(f'list_of_internal_outgroups: {list_of_internal_outgroups}')
     logger.info(f'list_of_external_outgroups: {list_of_external_outgroups}')
 
@@ -494,25 +495,26 @@ def add_outgroup_seqs(original_paralog_gene_fasta_directory, folder_of_qc_paralo
     # list_of_internal_outgroups:
     internal_outgroup_dict = defaultdict(lambda: defaultdict(list))
     all_paralog_taxon_names = set()
+
     for fasta in glob.glob(f'{original_paralog_gene_fasta_directory}/*.hmm.trimmed.fasta'):
         gene_id = os.path.basename(fasta).split('.')[0]  # CJJ get prefix e.g. '4471'
         seqs = SeqIO.parse(fasta, 'fasta')
-        alignment = AlignIO.read(fasta, 'fasta')
 
-        # Create an MultipleSeqAlignment object for ingroup sequences only:
-        alignment_ingroup_seqs_only = []
-
-        # Take first 10 sequences from the ingroup alignment for distance matrix calculations:
-        ingroup_count = 0
-        for sequence in alignment:
-            gene_name = sequence.id.split('.')[0]
-            if gene_name not in list_of_internal_outgroups:
-                ingroup_count += 1
-                if ingroup_count <= 10:
-                    alignment_ingroup_seqs_only.append(sequence)
-                else:
-                    break
-        alignment_ingroup_only = MultipleSeqAlignment(alignment_ingroup_seqs_only)
+        if list_of_internal_outgroups:
+            alignment = AlignIO.read(fasta, 'fasta')
+            # Create an MultipleSeqAlignment object for ingroup sequences only:
+            alignment_ingroup_seqs_only = []
+            # Take first 10 sequences from the ingroup alignment for distance matrix calculations:
+            ingroup_count = 0
+            for sequence in alignment:
+                gene_name = sequence.id.split('.')[0]
+                if gene_name not in list_of_internal_outgroups:
+                    ingroup_count += 1
+                    if ingroup_count <= 10:
+                        alignment_ingroup_seqs_only.append(sequence)
+                    else:
+                        break
+            alignment_ingroup_only = MultipleSeqAlignment(alignment_ingroup_seqs_only)
 
         # Populate the internal_outgroup_dict (potentially more than one sequence per taxon):
         for seq in seqs:
@@ -522,13 +524,15 @@ def add_outgroup_seqs(original_paralog_gene_fasta_directory, folder_of_qc_paralo
             if list_of_internal_outgroups and seq_name_prefix in list_of_internal_outgroups:
                 internal_outgroup_dict[gene_id][seq_name_prefix].append(seq)
 
-        # Filter internal outgroups with paralogs to retain the single sequence most divergent from the ingroup sample:
-        logger.info(f'Detecting paralogs in internal outgroup sequences for gene {gene_id}...')
-        internal_outgroup_dict_filtered = filter_internal_outgroups(internal_outgroup_dict,
-                                                                    alignment_ingroup_only,
-                                                                    gene_id)
-        # Reassign internal_outgroup_dict[gene_id] dictionary entry to selected sequences:
-        internal_outgroup_dict[gene_id] = internal_outgroup_dict_filtered[gene_id]
+        # Filter internal outgroups with paralogs to retain the single sequence most divergent from the ingroup
+        # sample:
+        if list_of_internal_outgroups:
+            logger.info(f'Detecting paralogs in internal outgroup sequences for gene {gene_id}...')
+            internal_outgroup_dict_filtered = filter_internal_outgroups(internal_outgroup_dict,
+                                                                        alignment_ingroup_only,
+                                                                        gene_id)
+            # Reassign internal_outgroup_dict[gene_id] dictionary entry to selected sequences:
+            internal_outgroup_dict[gene_id] = internal_outgroup_dict_filtered[gene_id]
 
     # Read in external outgroups file, and create a dictionary of gene_id:list_of_seq_names, either for all seqs if
     # no external outgroup taxa specified, or for specified taxa only:
@@ -547,6 +551,7 @@ def add_outgroup_seqs(original_paralog_gene_fasta_directory, folder_of_qc_paralo
                 seq.name = taxon  # CJJ i.e. we don't want the suffix e.g. '4471' present in the fasta file
                 seq.id = taxon
                 external_outgroup_dict[gene_id].append(seq)
+
     all_external_outgroup_taxon_names = set([seq.name for gene_id, seq_list in external_outgroup_dict.items() for seq
                                              in seq_list])
 
@@ -556,12 +561,16 @@ def add_outgroup_seqs(original_paralog_gene_fasta_directory, folder_of_qc_paralo
         gene_id_with_subtree_number = os.path.basename(fasta).split('.')[0]  # CJJ TEST
 
         seqs = list(SeqIO.parse(fasta, 'fasta'))
-        seqs_to_write = [seq for seq in seqs if seq.name.split('.')[0] not in list_of_internal_outgroups]
+        if list_of_internal_outgroups:
+            seqs_to_write = [seq for seq in seqs if seq.name.split('.')[0] not in list_of_internal_outgroups]
+        else:
+            seqs_to_write = seqs
         external_outgroup_seqs = external_outgroup_dict[gene_id]
         for taxon, sequence_list in internal_outgroup_dict[gene_id].items():  # add internal outgroup seqs
             seqs_to_write.extend(sequence_list)
 
-        seqs.extend(external_outgroup_seqs)  # add external outgroup seqs
+        # seqs.extend(external_outgroup_seqs)  # add external outgroup seqs
+        seqs_to_write.extend(external_outgroup_seqs)  # add external outgroup seqs
 
         # Write new files with outgroup sequences added (in the same directory as QC-d paralog files): #TODO: change
         #  CJJ this or it breaks Nextflow resume!!! CJJ is this done 19July2021?
@@ -571,8 +580,10 @@ def add_outgroup_seqs(original_paralog_gene_fasta_directory, folder_of_qc_paralo
     # Write the IN and OUT taxon text file required by some paralogy resolution methods (MO, RT):
     if list_of_internal_outgroups:
         ingroup_taxon_names = [name for name in all_paralog_taxon_names if name not in list_of_internal_outgroups]
+        logger.info(f'ingroup_taxon_names: {ingroup_taxon_names}')
     else:
         ingroup_taxon_names = [name for name in all_paralog_taxon_names]
+        logger.info(f'ingroup_taxon_names: {ingroup_taxon_names}')
     with open(f'in_and_outgroups_list_{os.path.basename(folder_of_qc_paralog_files)}.txt', 'w') as group_list:
         if list_of_internal_outgroups:
             for taxon in list_of_internal_outgroups:
