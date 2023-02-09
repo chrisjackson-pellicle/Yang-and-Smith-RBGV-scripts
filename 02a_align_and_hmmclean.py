@@ -153,7 +153,9 @@ def run_hmm_cleaner(input_folder):
         try:
             # run = subprocess.run(command, shell=True, check=True, capture_output=True)
 
-            result = subprocess.run(command, shell=True, universal_newlines=True, check=True, stdout=subprocess.PIPE,
+            # result = subprocess.run(command, shell=True, universal_newlines=True, check=True, stdout=subprocess.PIPE,
+            #                         stderr=subprocess.PIPE)
+            result = subprocess.run(command, shell=False, universal_newlines=True, check=True, stdout=subprocess.PIPE,
                                     stderr=subprocess.PIPE)
             logger.debug(f'hmmcleaner check_returncode() is: {result.check_returncode()}')
             logger.debug(f'hmmcleaner stdout is: {result.stdout}')
@@ -194,6 +196,7 @@ def run_hmm_cleaner(input_folder):
             logger.error(f'hmmcleaner stderr is: {exc.stderr}')
 
             logger.info(f"Couldn't run HmmCleaner for alignment {alignment} using command {command}")
+            hmm_file_output = re.sub('aln.trimmed.fasta', 'aln.hmm.trimmed.fasta', str(alignment)
             logger.info(f'Copying alignment {alignment} to {hmm_file_output} anyway...')
             shutil.copy(alignment, hmm_file_output)
 
