@@ -141,13 +141,15 @@ def run_hmm_cleaner(input_folder):
     createfolder(output_folder)
 
     for alignment in glob.glob(f'{input_folder}/*.aln.trimmed.fasta'):
-        command = f'/usr/bin/perl /usr/local/bin/HmmCleaner.pl {alignment}'
+        # command = f'/usr/bin/perl /usr/local/bin/HmmCleaner.pl {alignment}'
+
+        command = f'HmmCleaner.pl {alignment}'
 
         # print(f'hostname is: {host}')
         # if host == '192-168-1-111.tpgi.com.au':
-        if host == 'RBGs-MacBook-Air.local':
-            command = f'/Users/chrisjackson/perl5/perlbrew/perls/perl-5.26.2/bin/perl ' \
-                      f'/Users/chrisjackson/perl5/perlbrew/perls/perl-5.26.2/bin/HmmCleaner.pl {alignment}'
+        # if host == 'RBGs-MacBook-Air.local':
+        #     command = f'/Users/chrisjackson/perl5/perlbrew/perls/perl-5.26.2/bin/perl ' \
+        #               f'/Users/chrisjackson/perl5/perlbrew/perls/perl-5.26.2/bin/HmmCleaner.pl {alignment}'
         try:
             run = subprocess.run(command, shell=True, check=True, capture_output=True)
 
