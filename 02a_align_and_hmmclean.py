@@ -196,7 +196,7 @@ def run_hmm_cleaner(input_folder):
             logger.error(f'hmmcleaner stderr is: {exc.stderr}')
 
             logger.info(f"Couldn't run HmmCleaner for alignment {alignment} using command {command}")
-            hmm_file_output = re.sub('aln.trimmed.fasta', 'aln.hmm.trimmed.fasta', str(alignment)
+            hmm_file_output = re.sub('aln.trimmed.fasta', 'aln.hmm.trimmed.fasta', str(alignment))
             logger.info(f'Copying alignment {alignment} to {hmm_file_output} anyway...')
             shutil.copy(alignment, hmm_file_output)
 
