@@ -151,7 +151,13 @@ def run_hmm_cleaner(input_folder):
         #     command = f'/Users/chrisjackson/perl5/perlbrew/perls/perl-5.26.2/bin/perl ' \
         #               f'/Users/chrisjackson/perl5/perlbrew/perls/perl-5.26.2/bin/HmmCleaner.pl {alignment}'
         try:
-            run = subprocess.run(command, shell=True, check=True, capture_output=True)
+            # run = subprocess.run(command, shell=True, check=True, capture_output=True)
+
+            result = subprocess.run(command, shell=True, universal_newlines=True, check=True, stdout=subprocess.PIPE,
+                                    stderr=subprocess.PIPE)
+            logger.debug(f'hmmcleaner check_returncode() is: {result.check_returncode()}')
+            logger.debug(f'hmmcleaner stdout is: {result.stdout}')
+            logger.debug(f'hmmcleaner stderr is: {result.stderr}')
 
             # Filter out empty sequences comprised only of dashes, and post-hmmcleaner alignments where all sequences
             # are either dashes or empty. If fewer than 4 'good' sequences are present, skip gene.
@@ -181,12 +187,22 @@ def run_hmm_cleaner(input_folder):
                         SeqIO.write(good_seqs, filtered_hmm_fasta, 'fasta')
             except:
                 pass
-        except subprocess.CalledProcessError as e:
-            hmm_file_output = re.sub('aln.trimmed.fasta', 'aln.hmm.trimmed.fasta', str(alignment))
+
+        except subprocess.CalledProcessError as exc:
+            logger.error(f'hmmcleaner FAILED. Output is: {exc}')
+            logger.error(f'hmmcleaner stdout is: {exc.stdout}')
+            logger.error(f'hmmcleaner stderr is: {exc.stderr}')
+
             logger.info(f"Couldn't run HmmCleaner for alignment {alignment} using command {command}")
-            logger.info(f"error is: {e}")
             logger.info(f'Copying alignment {alignment} to {hmm_file_output} anyway...')
             shutil.copy(alignment, hmm_file_output)
+
+        # except subprocess.CalledProcessError as e:
+        #     hmm_file_output = re.sub('aln.trimmed.fasta', 'aln.hmm.trimmed.fasta', str(alignment))
+        #     logger.info(f"Couldn't run HmmCleaner for alignment {alignment} using command {command}")
+        #     logger.info(f"error is: {e}")
+        #     logger.info(f'Copying alignment {alignment} to {hmm_file_output} anyway...')
+        #     shutil.copy(alignment, hmm_file_output)
 
     for file in glob.glob(f"{input_folder}/*aln.hmm.trimmed*"):
         try:
