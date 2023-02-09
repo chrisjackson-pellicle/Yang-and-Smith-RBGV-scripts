@@ -181,9 +181,10 @@ def run_hmm_cleaner(input_folder):
                         SeqIO.write(good_seqs, filtered_hmm_fasta, 'fasta')
             except:
                 pass
-        except subprocess.CalledProcessError:
+        except subprocess.CalledProcessError as e:
             hmm_file_output = re.sub('aln.trimmed.fasta', 'aln.hmm.trimmed.fasta', str(alignment))
             logger.info(f"Couldn't run HmmCleaner for alignment {alignment} using command {command}")
+            logger.info(f"error is: {e}")
             logger.info(f'Copying alignment {alignment} to {hmm_file_output} anyway...')
             shutil.copy(alignment, hmm_file_output)
 
