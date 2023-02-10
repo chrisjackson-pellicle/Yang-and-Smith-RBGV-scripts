@@ -153,10 +153,10 @@ def run_hmm_cleaner(input_folder):
         try:
             # run = subprocess.run(command, shell=True, check=True, capture_output=True)
 
-            # result = subprocess.run(command, shell=True, universal_newlines=True, check=True, stdout=subprocess.PIPE,
-            #                         stderr=subprocess.PIPE)
-            result = subprocess.run(command, shell=False, universal_newlines=True, check=True, stdout=subprocess.PIPE,
+            result = subprocess.run(command, shell=True, universal_newlines=True, check=True, stdout=subprocess.PIPE,
                                     stderr=subprocess.PIPE)
+            # result = subprocess.run(command, shell=False, universal_newlines=True, check=True, stdout=subprocess.PIPE,
+            #                         stderr=subprocess.PIPE)
             logger.debug(f'hmmcleaner check_returncode() is: {result.check_returncode()}')
             logger.debug(f'hmmcleaner stdout is: {result.stdout}')
             logger.debug(f'hmmcleaner stderr is: {result.stderr}')
