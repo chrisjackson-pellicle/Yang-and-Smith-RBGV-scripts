@@ -157,9 +157,9 @@ def run_hmm_cleaner(input_folder):
                                     stderr=subprocess.PIPE)
             # result = subprocess.run(command, shell=False, universal_newlines=True, check=True, stdout=subprocess.PIPE,
             #                         stderr=subprocess.PIPE)
-            logger.debug(f'hmmcleaner check_returncode() is: {result.check_returncode()}')
-            logger.debug(f'hmmcleaner stdout is: {result.stdout}')
-            logger.debug(f'hmmcleaner stderr is: {result.stderr}')
+            logger.info(f'hmmcleaner check_returncode() is: {result.check_returncode()}')
+            logger.info(f'hmmcleaner stdout is: {result.stdout}')
+            logger.info(f'hmmcleaner stderr is: {result.stderr}')
 
             # Filter out empty sequences comprised only of dashes, and post-hmmcleaner alignments where all sequences
             # are either dashes or empty. If fewer than 4 'good' sequences are present, skip gene.
